@@ -1,1880 +1,261 @@
-```html
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>制約ワードウルフ (マルチ同期版)</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            background-color: #1a202c;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            -webkit-user-select: none;
-            user-select: none;
-        }
-        /* スクロールバーの非表示 */
-        ::-webkit-scrollbar {
-            display: none;
-        }
-        /* 数字ディスプレイ用フォント */
-        .num-font {
-            font-variant-numeric: tabular-nums;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>制約ワードウルフ</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./game-core.js" defer></script>
+  <script src="./app.js" defer></script>
 </head>
-<body class="text-gray-800 min-h-screen flex flex-col justify-center">
+<body>
+  <main class="app-shell">
+    <div id="toast" class="toast" role="alert" aria-live="polite"></div>
 
-<div id="app-container" class="w-full max-w-md mx-auto bg-gray-900 min-h-screen shadow-2xl relative flex flex-col justify-between p-5 text-gray-100">
+    <section id="screen-home" class="screen is-active">
+      <div class="hero">
+        <p class="eyebrow">1台回し / GitHub Pages対応</p>
+        <h1>制約ワードウルフ</h1>
+        <p>村人はお題だけ、人狼はお題と制約を知っています。発言ログで被りを防ぎながら、最後に人狼を見つけます。</p>
+      </div>
 
-    <!-- ==============================
-         エラーメッセージ表示
-         ============================== -->
-    <div id="error-message" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 font-bold text-center z-50"></div>
+      <div class="panel">
+        <button id="new-game-button" class="button primary full">新しく始める</button>
+        <button id="resume-button" class="button secondary full hidden">前回の続きから</button>
+      </div>
 
-    <!-- ==============================
-         0. モード選択画面 (トップ)
-         ============================== -->
-    <div id="top-screen" class="screen flex flex-col justify-center flex-grow">
-        <div class="text-center mb-8">
-            <h1 class="text-3xl font-extrabold tracking-wider text-white mb-2">制約ワードウルフ</h1>
-            <p class="text-xs text-blue-400 font-bold">✨ スマホQRコード簡単同期・ログ機能 ✨</p>
-        </div>
+      <div class="rule-card">
+        <h2>基本ルール</h2>
+        <ul>
+          <li>スマホを順番に渡し、自分のカードだけ確認します。</li>
+          <li>お題そのもの、制約そのもの、既出の発言ワードは言えません。</li>
+          <li>投票で人狼を当てれば村人勝利。外すと投票先は容疑者になります。</li>
+          <li>容疑者は最後の「最終解決」で人狼を告発できます。</li>
+        </ul>
+      </div>
+    </section>
 
-        <div class="space-y-6">
-            <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-lg">
-                <h3 class="text-lg font-bold text-blue-300 mb-2 text-center">親機 (部屋を作る)</h3>
-                <p class="text-xs text-gray-400 mb-4 text-center">自分のスマホをお題設定・管理用のマスター機にします。画面に接続用QRコードが生成されます。</p>
-                <button onclick="initHost()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl transition duration-150 shadow-md">
-                    新規の部屋を作成する
-                </button>
-            </div>
-
-            <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-lg">
-                <h3 class="text-lg font-bold text-emerald-300 mb-2 text-center">子機 (部屋に入る)</h3>
-                <div class="mb-4">
-                    <input type="text" id="join-room-code" placeholder="4文字のコードを入力" class="w-full text-center py-3 bg-gray-700 text-white text-xl font-bold uppercase tracking-widest rounded-xl border border-gray-600 focus:outline-none focus:border-emerald-500">
-                </div>
-                <button onclick="initPlayer()" class="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl transition duration-150 shadow-md">
-                    部屋に参加する
-                </button>
-            </div>
-
-            <div class="text-center mt-4">
-                <button onclick="initOffline()" class="text-sm text-gray-500 underline hover:text-gray-400">
-                    オフラインで遊ぶ（従来通りスマホ1台共有）
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ==============================
-         1. 待機部屋・設定画面 (ホスト用)
-         ============================== -->
-    <div id="host-setup-screen" class="hidden screen flex flex-col justify-between flex-grow">
+    <section id="screen-setup" class="screen">
+      <header class="screen-header">
         <div>
-            <div class="flex justify-between items-center mb-4">
-                <span class="text-xs font-bold text-blue-400">ホスト（管理用画面）</span>
-                <span class="bg-blue-900 border border-blue-700 px-3 py-1 text-xs font-bold rounded-full text-blue-200">
-                    部屋コード: <span id="host-room-code" class="text-sm font-extrabold tracking-widest text-white">----</span>
-                </span>
-            </div>
-
-            <!-- ★QRコード簡単接続エリア -->
-            <div class="bg-gray-800 p-4 rounded-xl border border-blue-900/50 mb-4 flex items-center space-x-4">
-                <div id="qrcode-container" class="bg-white p-2 rounded-lg shrink-0 flex items-center justify-center" style="width: 100px; height: 100px;">
-                    <!-- JSでQRコードが描画されます -->
-                </div>
-                <div>
-                    <h4 class="text-xs font-bold text-blue-300 mb-1">📱 スマホでスキャンして簡単参加！</h4>
-                    <p class="text-xxs text-gray-400 leading-relaxed">このQRコードを友達のスマホのカメラで読み取るだけで、一瞬で同じ部屋に接続できます。アプリの配布は不要です！</p>
-                </div>
-            </div>
-
-            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 space-y-4 mb-4">
-                <!-- 人数設定 -->
-                <div class="flex justify-between items-center">
-                    <span class="text-sm font-bold">人狼人数</span>
-                    <div class="flex items-center space-x-2">
-                        <button onclick="changeValue('setup-wolf', -1, 1, 9)" class="w-10 h-10 bg-gray-700 text-white text-xl font-bold rounded-lg">-</button>
-                        <span id="setup-wolf-display" class="w-8 text-center font-extrabold num-font text-lg text-white">1</span>
-                        <input type="hidden" id="setup-wolf" value="1">
-                        <button onclick="changeValue('setup-wolf', 1, 1, 9)" class="w-10 h-10 bg-gray-700 text-white text-xl font-bold rounded-lg">+</button>
-                    </div>
-                </div>
-
-                <!-- AIおまかせトグル -->
-                <div class="bg-gray-750 p-3 rounded-lg border border-gray-700">
-                    <div class="flex justify-between items-center mb-1">
-                        <span class="text-sm font-extrabold text-blue-300">✨ AIに自動でおまかせ</span>
-                        <input type="checkbox" id="host-ai-toggle" onchange="toggleHostAIMode()" class="w-6 h-6 rounded">
-                    </div>
-                    <p class="text-xxs text-gray-400">Geminiがお題、人狼の制約、占い師のヒントを自動生成しブラインド開始します。</p>
-                </div>
-
-                <!-- 手動お題設定 -->
-                <div id="host-manual-area" class="space-y-3">
-                    <button class="w-full py-2 bg-gray-700 hover:bg-gray-650 text-xs font-bold rounded" onclick="setHostRandomTopic()">🎲 お題テンプレをランダム選択</button>
-                    <div>
-                        <label class="text-xs text-gray-400">お題</label>
-                        <input type="text" id="host-topic" placeholder="例: 動物" class="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white">
-                    </div>
-                    <div>
-                        <label class="text-xs text-gray-400">人狼用の制約 (お題を絞り込む条件)</label>
-                        <input type="text" id="host-constraint" placeholder="例: サバンナにいる" class="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white">
-                    </div>
-                </div>
-
-                <!-- 占い師設定 -->
-                <div class="border-t border-gray-700 pt-3">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-sm font-bold">占い師（お助け枠）を入れる</span>
-                        <input type="checkbox" id="host-seer-toggle" onchange="toggleHostSeer()" class="w-5 h-5">
-                    </div>
-                    <div id="host-seer-area" class="hidden">
-                        <label class="text-xs text-gray-400">占い師ヒント (制約の手がかりになる大カテゴリ)</label>
-                        <input type="text" id="host-hint" placeholder="例: 生息地" class="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white">
-                    </div>
-                </div>
-            </div>
-
-            <!-- 参加メンバーリアルタイム同期 -->
-            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
-                <h3 class="text-sm font-bold text-gray-300 mb-2 flex justify-between">
-                    <span>👥 参加中のプレイヤー</span>
-                    <span class="text-blue-400" id="connected-count">0 人</span>
-                </h3>
-                <div id="player-lobby-list" class="flex flex-wrap gap-2 text-xs text-gray-400 max-h-32 overflow-y-auto">
-                    <span class="text-gray-500 italic">接続を待機しています...</span>
-                </div>
-            </div>
+          <p class="eyebrow">Setup</p>
+          <h1>ゲーム設定</h1>
         </div>
+        <button class="button ghost small" data-action="home">戻る</button>
+      </header>
 
-        <div class="mt-4">
-            <button id="btn-host-start" onclick="hostStartMatch()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 font-extrabold text-white rounded-xl shadow-lg transition duration-150">
-                お題を配ってゲーム開始！
-            </button>
-            <button onclick="quitRoom()" class="w-full mt-2 py-2 text-xs text-gray-500 hover:text-gray-400">キャンセルして戻る</button>
-        </div>
-    </div>
+      <div class="stack">
+        <section class="panel">
+          <div class="setting-row">
+            <div>
+              <h2>プレイヤー</h2>
+              <p>3〜12人まで。名前は重複しないようにします。</p>
+            </div>
+            <div class="stepper" aria-label="プレイヤー人数">
+              <button data-action="players-down">-</button>
+              <strong id="player-count">4</strong>
+              <button data-action="players-up">+</button>
+            </div>
+          </div>
+          <div id="name-fields" class="name-fields"></div>
+        </section>
 
-    <!-- ==============================
-         2. 子機（プレイヤー）待機・名前登録画面
-         ============================== -->
-    <div id="player-lobby-screen" class="hidden screen flex flex-col justify-between flex-grow">
+        <section class="panel">
+          <div class="setting-row">
+            <div>
+              <h2>役職</h2>
+              <p>人狼を増やすと難しくなります。占い師は制約のヒントだけを見ます。</p>
+            </div>
+            <div class="stepper" aria-label="人狼人数">
+              <button data-action="wolves-down">-</button>
+              <strong id="wolf-count">1</strong>
+              <button data-action="wolves-up">+</button>
+            </div>
+          </div>
+
+          <label class="check-row">
+            <span>
+              <strong>占い師を入れる</strong>
+              <small>4人以上で利用できます。</small>
+            </span>
+            <input id="use-seer" type="checkbox">
+          </label>
+
+          <label class="field-label">
+            話し合い時間
+            <select id="discussion-seconds" class="input">
+              <option value="30">30秒</option>
+              <option value="45">45秒</option>
+              <option value="60">60秒</option>
+              <option value="90">90秒</option>
+              <option value="120">120秒</option>
+              <option value="180">180秒</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="panel">
+          <div class="setting-row compact">
+            <div>
+              <h2>お題と制約</h2>
+              <p>制約は人狼だけが見る絞り込み条件です。</p>
+            </div>
+            <button id="template-button" class="button secondary small">おまかせ</button>
+          </div>
+
+          <label class="field-label">
+            お題
+            <input id="topic" class="input" type="text" autocomplete="off" placeholder="例: 動物">
+          </label>
+
+          <label class="field-label">
+            人狼の制約
+            <input id="constraint" class="input" type="text" autocomplete="off" placeholder="例: サバンナにいる">
+          </label>
+
+          <label class="field-label">
+            占い師ヒント
+            <input id="seer-hint" class="input" type="text" autocomplete="off" placeholder="例: 生息地">
+          </label>
+        </section>
+      </div>
+
+      <footer class="footer-actions">
+        <button id="start-game-button" class="button primary full">役職を配って開始</button>
+      </footer>
+    </section>
+
+    <section id="screen-reveal" class="screen">
+      <header class="screen-header">
         <div>
-            <div class="flex justify-between items-center mb-6">
-                <span class="text-xs font-bold text-emerald-400">プレイヤー画面</span>
-                <span class="bg-emerald-900 border border-emerald-700 px-3 py-1 text-xs font-bold rounded-full text-emerald-200">
-                    部屋コード: <span id="player-room-code" class="text-sm font-extrabold tracking-widest text-white">----</span>
-                </span>
-            </div>
-
-            <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 text-center mb-6">
-                <h2 class="text-lg font-bold text-white mb-4">接続完了！プレイヤー名を入力</h2>
-                <input type="text" id="player-my-name" placeholder="あなたの表示名" class="w-full text-center py-3 bg-gray-900 border border-gray-700 rounded-xl text-lg text-white font-bold mb-4 focus:outline-none focus:border-emerald-500">
-                <button onclick="submitPlayerName()" id="btn-submit-name" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl">参加登録</button>
-            </div>
-
-            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
-                <h3 class="text-xs font-bold text-gray-400 mb-2">同じ部屋にいるメンバー</h3>
-                <div id="lobby-synced-players" class="flex flex-wrap gap-2 text-xs">
-                    <!-- 同期中のプレイヤーバッジ -->
-                </div>
-            </div>
+          <p class="eyebrow">Secret Card</p>
+          <h1>役職確認</h1>
         </div>
+        <span id="reveal-progress" class="pill"></span>
+      </header>
 
-        <div class="text-center p-4">
-            <p class="text-xs text-gray-500 animate-pulse">ホストがゲームを開始するまでお待ちください...</p>
-            <button onclick="quitRoom()" class="mt-4 text-xs text-gray-600 underline">退室する</button>
-        </div>
-    </div>
+      <div id="reveal-cover" class="panel center-card">
+        <p class="muted">この人だけが画面を見てください</p>
+        <h2 id="reveal-name"></h2>
+        <button id="show-card-button" class="button primary full">カードを見る</button>
+      </div>
 
-    <!-- ==============================
-         3. ローディング画面 (AI生成 & 同期中)
-         ============================== -->
-    <div id="loading-screen" class="hidden screen flex flex-col justify-center items-center flex-grow">
-        <div class="loader mb-6"></div>
-        <div class="loading-text text-center font-bold text-lg text-blue-400">
-            お題と制約データを同期しています...<br>
-            <span class="text-xs text-gray-500 font-normal mt-2 block">少々お待ちください。</span>
-        </div>
-    </div>
+      <div id="private-card" class="private-card hidden">
+        <p class="card-label">お題</p>
+        <strong id="card-topic" class="card-topic"></strong>
+        <div class="card-divider"></div>
+        <p class="card-label">役職</p>
+        <strong id="card-role" class="card-role"></strong>
+        <div id="card-info" class="card-info"></div>
+      </div>
 
-    <!-- ==============================
-         4. 個人確認 & カードカンペ画面
-         ============================== -->
-    <div id="reveal-screen" class="hidden screen flex flex-col justify-between flex-grow">
-        <div class="flex-grow flex flex-col justify-center">
-            <h2 class="text-center text-sm font-bold text-gray-400 mb-2 tracking-widest uppercase">あなたの正体</h2>
+      <footer class="footer-actions">
+        <button id="next-card-button" class="button primary full hidden">隠して次の人へ</button>
+        <button id="discussion-button" class="button success full hidden">全員確認済み。話し合いへ</button>
+      </footer>
+    </section>
 
-            <div id="reveal-card" class="bg-white rounded-2xl p-6 shadow-2xl text-gray-800 space-y-6">
-                <!-- お題情報 -->
-                <div class="text-center border-b border-gray-200 pb-4">
-                    <p class="text-xs text-gray-400 font-extrabold">お題のテーマ</p>
-                    <p id="reveal-topic" class="text-3xl font-black text-blue-700 mt-1">？？？</p>
-                </div>
-
-                <!-- 役職 -->
-                <div class="text-center">
-                    <p class="text-xs text-gray-400 font-extrabold">役職</p>
-                    <p id="reveal-role" class="text-2xl font-black text-gray-800 mt-1">村人</p>
-                </div>
-
-                <!-- 制約/ヒント -->
-                <div id="reveal-constraint-box" class="bg-gray-100 p-4 rounded-xl text-center">
-                    <p class="text-xs text-gray-400 font-extrabold">あなただけの制約条件</p>
-                    <p id="reveal-constraint" class="text-base font-extrabold text-red-600 mt-1">なし</p>
-                </div>
-
-                <!-- 占い師ヒント -->
-                <div id="reveal-hint-box" class="hidden bg-purple-50 border border-purple-200 p-4 rounded-xl text-center">
-                    <p class="text-xs text-purple-400 font-extrabold">占い師ヒント (制約の手がかり)</p>
-                    <p id="reveal-hint" class="text-base font-extrabold text-purple-700 mt-1">なし</p>
-                    <p class="text-xxs text-purple-400 mt-2">あなたは村人陣営です。人狼の持つ制約条件に関する抽象的なジャンル（ヒント）を知っています。</p>
-                </div>
-
-                <!-- ⚠️ ルール注意 -->
-                <div class="bg-amber-50 border border-amber-200 p-3 rounded-lg text-xxs text-amber-800 space-y-1">
-                    <p class="font-bold text-amber-700 text-center">⚠️ 話し合いのルール</p>
-                    <p>・<strong>発言の被り禁止</strong>: お題そのものの言葉や、すでに他人が発言した言葉と同じ言葉を言ってはいけません。</p>
-                    <p>・<strong>解答権は後回し</strong>: 投票されても脱落せず「容疑者」となります。ゲームの最後に、容疑者全員で相談して一発解決を行います。</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="mt-6 space-y-3">
-            <button onclick="playerReadyToDiscuss()" id="btn-ready-discuss" class="w-full py-4 bg-blue-600 hover:bg-blue-500 font-extrabold text-white rounded-xl shadow-lg">
-                確認完了！話し合いへ
-            </button>
-            <p id="wait-other-ready-msg" class="text-center text-xs text-gray-500 animate-pulse hidden">他のプレイヤーの確認を待っています...</p>
-        </div>
-    </div>
-
-    <!-- ==============================
-         5. 話し合い & リアルタイム発言ログ画面 (本ゲーム)
-         ============================== -->
-    <div id="game-screen" class="hidden screen flex flex-col justify-between flex-grow">
+    <section id="screen-discussion" class="screen">
+      <header class="screen-header">
         <div>
-            <!-- ヘッダー情報 -->
-            <div class="flex justify-between items-center mb-2">
-                <span class="text-xs font-bold text-blue-400" id="turn-display-text">1週目</span>
-                <span id="game-topic-カンペ" class="bg-gray-800 border border-gray-700 px-3 py-1 text-xs font-bold rounded-full text-blue-200">
-                    お題: <span id="my-topic-tab" class="font-extrabold text-white">---</span>
-                </span>
-            </div>
-
-            <!-- 30秒タイマー -->
-            <div id="game-timer-container" class="bg-gray-800 rounded-xl p-3 text-center border border-gray-700 mb-4 flex items-center justify-between">
-                <span class="text-xs font-bold text-gray-400">⏱ 話し合い中</span>
-                <span id="game-timer" class="text-3xl font-black text-blue-400 num-font">30</span>
-                <button onclick="forceSkipTimer()" class="px-3 py-1 bg-gray-700 text-xs font-bold rounded hover:bg-gray-600">終了</button>
-            </div>
-
-            <!-- お題と制約のミニリマインダー(認知負荷削減) -->
-            <div class="bg-gray-800 border border-gray-700 rounded-xl p-3 text-xs mb-4">
-                <div class="flex justify-between mb-1">
-                    <span class="text-gray-400">自分の役職:</span>
-                    <span id="mini-my-role" class="font-bold text-white">---</span>
-                </div>
-                <div id="mini-my-constraint-box" class="flex justify-between">
-                    <span class="text-gray-400">制約/ヒント:</span>
-                    <span id="mini-my-constraint" class="font-bold text-red-400">---</span>
-                </div>
-            </div>
-
-            <!-- ワード入力＆ログ送信エリア -->
-            <div class="bg-gray-800 p-3 rounded-xl border border-gray-700 mb-4 space-y-2">
-                <p class="text-xxs font-bold text-gray-400">💬 発言したワードを入力してログに残す（被り防止）</p>
-                <div class="flex space-x-2">
-                    <input type="text" id="input-word-log" placeholder="例: ライオン" class="flex-grow p-2 text-sm bg-gray-900 border border-gray-700 rounded-lg text-white">
-                    <button onclick="sendWordLog()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs rounded-lg text-white">送信</button>
-                </div>
-            </div>
-
-            <!-- ワードログタイムライン ＆ フィルターボード -->
-            <div class="bg-gray-850 rounded-xl border border-gray-700 p-4 space-y-3">
-                <div class="flex justify-between items-center pb-2 border-b border-gray-700">
-                    <span class="text-xs font-bold text-gray-400">📋 発言ワードログ (名前を押して履歴絞り込み)</span>
-                    <button onclick="clearFilter()" class="text-xxs text-blue-400 hover:underline">クリア</button>
-                </div>
-
-                <!-- リアルタイム発言リスト -->
-                <div id="word-timeline" class="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    <p class="text-center text-xs text-gray-500 py-4">まだ発言ワードの登録はありません。</p>
-                </div>
-            </div>
+          <p class="eyebrow">Discussion</p>
+          <h1 id="turn-title">話し合い</h1>
         </div>
+        <span id="active-count" class="pill"></span>
+      </header>
 
-        <!-- プレイヤー一覧と状態 -->
-        <div class="mt-4">
-            <div class="mb-2 text-xxs text-gray-400 flex justify-between">
-                <span>プレイヤー状態</span>
-                <span class="text-blue-400">生存: 青 / 容疑者: オレンジ</span>
-            </div>
-            <div id="game-player-badges" class="flex flex-wrap gap-2 mb-4">
-                <!-- プレイヤーが同期表示されます -->
-            </div>
-            <button id="btn-next-turn-wait" disabled class="w-full py-4 bg-gray-850 text-gray-500 font-extrabold text-sm rounded-xl cursor-not-allowed">
-                話し合いタイマーの終了を待っています
-            </button>
+      <section class="panel timer-panel">
+        <div id="timer" class="timer">01:00</div>
+        <div class="button-row">
+          <button id="start-timer-button" class="button primary">開始</button>
+          <button id="pause-timer-button" class="button secondary">停止</button>
+          <button id="vote-button" class="button warn">投票へ</button>
         </div>
-    </div>
+      </section>
 
-    <!-- ==============================
-         6. 投票 ＆ 最終解決画面
-         ============================== -->
-    <div id="vote-screen" class="hidden screen flex flex-col justify-between flex-grow">
+      <section class="panel">
+        <h2>発言ログ</h2>
+        <div class="log-form">
+          <select id="speaker" class="input" aria-label="発言者"></select>
+          <input id="spoken-word" class="input" type="text" autocomplete="off" placeholder="発言したワード">
+        </div>
+        <div class="button-row">
+          <button id="add-log-button" class="button success">追加</button>
+          <button id="undo-log-button" class="button ghost">直前を取り消す</button>
+        </div>
+        <div id="word-log" class="word-log"></div>
+      </section>
+
+      <section class="panel">
+        <h2>現在の状態</h2>
+        <div id="player-status" class="chips"></div>
+      </section>
+    </section>
+
+    <section id="screen-vote" class="screen">
+      <header class="screen-header">
         <div>
-            <div class="text-center mb-6">
-                <h2 id="vote-title" class="text-2xl font-black text-white">投票</h2>
-                <p id="vote-subtitle" class="text-xs text-gray-400 mt-2">人狼と思われる人、または告発相手を話し合って選んでください。</p>
-            </div>
-
-            <div id="final-solution-info" class="hidden bg-amber-900 border border-amber-700 p-4 rounded-xl text-xs space-y-2 mb-6">
-                <p class="font-bold text-amber-300">🕵️‍♂️ 最終解決フェーズに突入しました！</p>
-                <p class="text-gray-300">これまでに疑われて容疑者リストに入ったプレイヤーたちが合意して、残ったプレイヤーの中から「人狼」を1人指名してください。</p>
-                <p class="text-amber-400 font-bold" id="final-voters">解答権を行使する容疑者: --</p>
-            </div>
-
-            <div id="vote-buttons-area" class="space-y-3">
-                <!-- 指名ボタン一覧 -->
-            </div>
+          <p id="vote-kind" class="eyebrow">Vote</p>
+          <h1 id="vote-title">投票</h1>
         </div>
+        <span id="vote-progress" class="pill"></span>
+      </header>
 
-        <div class="space-y-3">
-            <button id="btn-skip-vote" onclick="submitVote('skip')" class="w-full py-3 bg-gray-800 hover:bg-gray-750 font-bold text-gray-300 rounded-xl">
-                誰も選ばない (スキップ / 1週目のみ有効)
-            </button>
-            <p id="vote-waiting-msg" class="text-center text-xs text-gray-500 animate-pulse hidden">他のプレイヤー全員の決断を待っています...</p>
+      <div id="vote-cover" class="panel center-card">
+        <p class="muted">この人だけが投票してください</p>
+        <h2 id="voter-name"></h2>
+        <button id="open-vote-button" class="button primary full">投票画面を開く</button>
+      </div>
+
+      <div id="vote-box" class="panel hidden">
+        <p id="vote-help" class="muted"></p>
+        <div id="vote-options" class="vote-options"></div>
+      </div>
+    </section>
+
+    <section id="screen-result" class="screen">
+      <header class="screen-header">
+        <div>
+          <p class="eyebrow">Result</p>
+          <h1>結果発表</h1>
         </div>
-    </div>
-
-    <!-- ==============================
-         7. ゲーム結果・リザルト画面
-         ============================== -->
-    <div id="result-screen" class="hidden screen flex flex-col justify-between flex-grow">
-        <div class="text-center flex-grow flex flex-col justify-center">
-            <div class="mb-6">
-                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">リザルト</p>
-                <h1 id="result-winner" class="text-3xl font-black mt-1">村人陣営の勝ち！</h1>
-            </div>
-
-            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-left space-y-3 mb-6">
-                <div class="flex justify-between border-b border-gray-700 pb-2">
-                    <span class="text-xs text-gray-400">今回のお題:</span>
-                    <span id="result-topic" class="font-extrabold text-blue-400 text-sm">動物</span>
-                </div>
-                <div class="flex justify-between border-b border-gray-700 pb-2">
-                    <span class="text-xs text-gray-400">人狼の制約:</span>
-                    <span id="result-constraint" class="font-extrabold text-red-400 text-sm">サバンナにいる</span>
-                </div>
-                <div id="result-hint-row" class="flex justify-between pb-2 hidden">
-                    <span class="text-xs text-gray-400">占い師ヒント:</span>
-                    <span id="result-hint" class="font-extrabold text-purple-400 text-sm">生息地</span>
-                </div>
-            </div>
-
-            <div class="bg-gray-850 p-4 rounded-xl border border-gray-700 text-left">
-                <p class="text-xs font-bold text-gray-400 mb-3">👤 プレイヤーたちの正体 ＆ 状態</p>
-                <div id="result-players-list" class="space-y-2 text-xs">
-                    <!-- 役職一覧 -->
-                </div>
-            </div>
-        </div>
-
-        <div class="mt-6 space-y-2">
-            <button onclick="goToSetup()" id="btn-restart-setup" class="w-full py-4 bg-blue-600 hover:bg-blue-500 font-extrabold text-white rounded-xl shadow-lg">
-                設定を残してもう一度遊ぶ
-            </button>
-            <button onclick="fullResetApp()" class="w-full py-2 text-xs text-gray-500 hover:text-gray-400">
-                最初からやり直す (全リセット)
-            </button>
-        </div>
-    </div>
-
-</div>
-
-<!-- QR Code Generator Module (JavaScript) -->
-<script>
-    // QR Code Generator (純粋なJavaScriptによるQRCode生成エンジン)
-    // 外部ライブラリをCDNからロードできない制約をクリアするために内包
-    var QRCode = (function() {
-        var createQRCode = function(text, typeNumber, errorCorrectionLevel) {
-            typeNumber = typeNumber || 4;
-            errorCorrectionLevel = errorCorrectionLevel || 'L';
-            
-            var qr = {};
-            var modules = null;
-            var moduleCount = 0;
-            var dataCache = null;
-            var dataList = [];
-            
-            qr.addData = function(data) {
-                var newData = {
-                    data: data,
-                    mode: 4, // Byte mode
-                    getLength: function() { return this.data.length; },
-                    write: function(buffer) {
-                        for (var i = 0; i < this.data.length; i++) {
-                            buffer.put(this.data.charCodeAt(i), 8);
-                        }
-                    }
-                };
-                dataList.push(newData);
-                dataCache = null;
-            };
-            
-            qr.isDark = function(row, col) {
-                if (row < 0 || moduleCount <= row || col < 0 || moduleCount <= col) {
-                    throw new Error(row + "," + col);
-                }
-                return modules[row][col];
-            };
-            
-            qr.getModuleCount = function() {
-                return moduleCount;
-            };
-            
-            qr.make = function() {
-                makeImpl(false, getBestMaskPattern());
-            };
-            
-            var makeImpl = function(test, maskPattern) {
-                moduleCount = typeNumber * 4 + 17;
-                modules = new Array(moduleCount);
-                for (var row = 0; row < moduleCount; row++) {
-                    modules[row] = new Array(moduleCount);
-                    for (var col = 0; col < moduleCount; col++) {
-                        modules[row][col] = null;
-                    }
-                }
-                setupPositionProbePattern(0, 0);
-                setupPositionProbePattern(moduleCount - 7, 0);
-                setupPositionProbePattern(0, moduleCount - 7);
-                setupPositionAdjustPattern();
-                setupTimingPattern();
-                setupTypeInfo(test, maskPattern);
-                if (typeNumber >= 7) {
-                    setupTypeNumber(test);
-                }
-                if (dataCache == null) {
-                    dataCache = createData(typeNumber, errorCorrectionLevel, dataList);
-                }
-                mapData(dataCache, maskPattern);
-            };
-            
-            var setupPositionProbePattern = function(row, col) {
-                for (var r = -1; row + r <= row + 7; r++) {
-                    if (row + r < 0 || moduleCount <= row + r) continue;
-                    for (var c = -1; col + c <= col + 7; c++) {
-                        if (col + c < 0 || moduleCount <= col + c) continue;
-                        if ( (0 <= r && r <= 6 && (c == 0 || c == 6) )
-                                || (0 <= c && c <= 6 && (r == 0 || r == 6) )
-                                || (2 <= r && r <= 4 && 2 <= c && c <= 4) ) {
-                            modules[row + r][col + c] = true;
-                        } else {
-                            modules[row + r][col + c] = false;
-                        }
-                    }
-                }
-            };
-            
-            var getBestMaskPattern = function() {
-                var minLostPoint = 0;
-                var pattern = 0;
-                for (var i = 0; i < 8; i++) {
-                    makeImpl(true, i);
-                    var lostPoint = getLostPoint();
-                    if (i == 0 || minLostPoint > lostPoint) {
-                        minLostPoint = lostPoint;
-                        pattern = i;
-                    }
-                }
-                return pattern;
-            };
-            
-            var setupTimingPattern = function() {
-                for (var r = 8; r < moduleCount - 8; r++) {
-                    if (modules[r][6] != null) continue;
-                    modules[r][6] = (r % 2 == 0);
-                }
-                for (var c = 8; c < moduleCount - 8; c++) {
-                    if (modules[6][c] != null) continue;
-                    modules[6][c] = (c % 2 == 0);
-                }
-            };
-            
-            var setupPositionAdjustPattern = function() {
-                var pos = getPatternPositionOfRS(typeNumber);
-                for (var i = 0; i < pos.length; i++) {
-                    for (var j = 0; j < pos.length; j++) {
-                        var row = pos[i];
-                        var col = pos[j];
-                        if (modules[row][col] != null) continue;
-                        for (var r = -2; r <= 2; r++) {
-                            for (var c = -2; c <= 2; c++) {
-                                if (r == -2 || r == 2 || c == -2 || c == 2 || (r == 0 && c == 0) ) {
-                                    modules[row + r][col + c] = true;
-                                } else {
-                                    modules[row + r][col + c] = false;
-                                }
-                            }
-                        }
-                    }
-                }
-            };
-            
-            var setupTypeInfo = function(test, maskPattern) {
-                var data = (getBitsOfErrorCorrectionLevel(errorCorrectionLevel) << 3) | maskPattern;
-                var bits = getBCHTypeInfo(data);
-                for (var i = 0; i < 15; i++) {
-                    var mod = (!test && ( (bits >> i) & 1) == 1);
-                    if (i < 6) {
-                        modules[i][8] = mod;
-                    } else if (i < 8) {
-                        modules[i + 1][8] = mod;
-                    } else {
-                        modules[moduleCount - 15 + i][8] = mod;
-                    }
-                }
-                for (var i = 0; i < 15; i++) {
-                    var mod = (!test && ( (bits >> i) & 1) == 1);
-                    if (i < 8) {
-                        modules[8][moduleCount - i - 1] = mod;
-                    } else if (i < 9) {
-                        modules[8][15 - i - 1 + 1] = mod;
-                    } else {
-                        modules[8][15 - i - 1] = mod;
-                    }
-                }
-                modules[moduleCount - 8][8] = (!test);
-            };
-            
-            var mapData = function(data, maskPattern) {
-                var inc = -1;
-                var row = moduleCount - 1;
-                var bitIndex = 7;
-                var byteIndex = 0;
-                for (var col = moduleCount - 1; col > 0; col -= 2) {
-                    if (col == 6) col--;
-                    while (true) {
-                        for (var c = 0; c < 2; c++) {
-                            var targetCol = col - c;
-                            if (modules[row][targetCol] == null) {
-                                var dark = false;
-                                if (byteIndex < data.length) {
-                                    dark = ( ( (data[byteIndex] >>> bitIndex) & 1) == 1);
-                                }
-                                var mask = getMask(maskPattern, row, targetCol);
-                                if (mask) {
-                                    dark = !dark;
-                                }
-                                modules[row][targetCol] = dark;
-                                bitIndex--;
-                                if (bitIndex == -1) {
-                                    byteIndex++;
-                                    bitIndex = 7;
-                                }
-                            }
-                        }
-                        row += inc;
-                        if (row < 0 || moduleCount <= row) {
-                            row -= inc;
-                            inc = -inc;
-                            break;
-                        }
-                    }
-                }
-            };
-            
-            var getMask = function(maskPattern, i, j) {
-                switch (maskPattern) {
-                case 0 : return (i + j) % 2 == 0;
-                case 1 : return i % 2 == 0;
-                case 2 : return j % 3 == 0;
-                case 3 : return (i + j) % 3 == 0;
-                case 4 : return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 == 0;
-                case 5 : return (i * j) % 2 + (i * j) % 3 == 0;
-                case 6 : return ( (i * j) % 2 + (i * j) % 3) % 2 == 0;
-                case 7 : return ( (i + j) % 2 + (i * j) % 3) % 2 == 0;
-                default : throw new Error("bad maskPattern:" + maskPattern);
-                }
-            };
-            
-            var getLostPoint = function() {
-                var lostPoint = 0;
-                // Level 1
-                for (var r = 0; r < moduleCount; r++) {
-                    for (var c = 0; c < moduleCount; c++) {
-                        var sameCount = 0;
-                        var dark = modules[r][c];
-                        for (var r2 = -1; r2 <= 1; r2++) {
-                            if (r + r2 < 0 || moduleCount <= r + r2) continue;
-                            for (var c2 = -1; c2 <= 1; c2++) {
-                                if (c + c2 < 0 || moduleCount <= c + c2) continue;
-                                if (r2 == 0 && c2 == 0) continue;
-                                if (dark == modules[r + r2][c + c2]) {
-                                    sameCount++;
-                                }
-                            }
-                        }
-                        if (sameCount > 5) {
-                            lostPoint += (3 + sameCount - 5);
-                        }
-                    }
-                }
-                // Level 2
-                for (var r = 0; r < moduleCount - 1; r++) {
-                    for (var c = 0; c < moduleCount - 1; c++) {
-                        var count = 0;
-                        if (modules[r][c]) count++;
-                        if (modules[r + 1][c]) count++;
-                        if (modules[r][c + 1]) count++;
-                        if (modules[r + 1][c + 1]) count++;
-                        if (count == 0 || count == 4) {
-                            lostPoint += 3;
-                        }
-                    }
-                }
-                // Level 3
-                for (var r = 0; r < moduleCount; r++) {
-                    for (var c = 0; c < moduleCount - 6; c++) {
-                        if (modules[r][c] && !modules[r][c + 1] && modules[r][c + 2] && modules[r][c + 3] && modules[r][c + 4] && !modules[r][c + 5] && modules[r][c + 6]) {
-                            lostPoint += 40;
-                        }
-                    }
-                }
-                for (var c = 0; c < moduleCount; c++) {
-                    for (var r = 0; r < moduleCount - 6; r++) {
-                        if (modules[r][c] && !modules[r + 1][c] && modules[r + 2][c] && modules[r + 3][c] && modules[r + 4][c] && !modules[r + 5][c] && modules[r + 6][c]) {
-                            lostPoint += 40;
-                        }
-                    }
-                }
-                // Level 4
-                var darkCount = 0;
-                for (var c = 0; c < moduleCount; c++) {
-                    for (var r = 0; r < moduleCount; r++) {
-                        if (modules[r][c]) {
-                            darkCount++;
-                        }
-                    }
-                }
-                var ratio = Math.abs(100 * darkCount / moduleCount / moduleCount - 50) / 5;
-                lostPoint += ratio * 10;
-                return lostPoint;
-            };
-            
-            return qr;
-        };
-
-        // RS Block configuration
-        var RS_BLOCK_TABLE = [
-            [1, 26, 19], [1, 26, 16], [1, 26, 13], [1, 26, 9], // 1
-            [1, 44, 34], [1, 44, 28], [1, 44, 22], [1, 44, 16], // 2
-            [1, 70, 55], [1, 70, 44], [2, 35, 17], [2, 35, 13], // 3
-            [1, 100, 80], [2, 50, 32], [2, 50, 24], [4, 25, 9], // 4
-            [1, 134, 64] // 5 - byte scale backup
-        ];
-
-        var getPatternPositionOfRS = function(typeNumber) {
-            if (typeNumber == 1) return [];
-            if (typeNumber == 2) return [6, 18];
-            if (typeNumber == 3) return [6, 22];
-            if (typeNumber == 4) return [6, 26];
-            return [6, 20, 34];
-        };
-
-        var getBitsOfErrorCorrectionLevel = function(level) {
-            switch (level) {
-            case 'L' : return 1;
-            case 'M' : return 0;
-            case 'Q' : return 3;
-            case 'H' : return 2;
-            default : return 1;
-            }
-        };
-
-        var getBCHTypeInfo = function(data) {
-            var d = data << 10;
-            while (getMSB(d) >= 10) {
-                d ^= (0x537 << (getMSB(d) - 10) );
-            }
-            return ( (data << 10) | d) ^ 0x5412;
-        };
-
-        var getMSB = function(data) {
-            var n = 0;
-            while (data >>>= 1) {
-                n++;
-            }
-            return n;
-        };
-
-        var createData = function(typeNumber, errorCorrectionLevel, dataList) {
-            var rsBlocks = getRSBlocks(typeNumber, errorCorrectionLevel);
-            var buffer = {
-                buffer: [],
-                length: 0,
-                put: function(num, length) {
-                    for (var i = 0; i < length; i++) {
-                        this.putBit( ( (num >>> (length - i - 1) ) & 1) == 1);
-                    }
-                },
-                putBit: function(bit) {
-                    var bufIndex = Math.floor(this.length / 8);
-                    if (this.buffer.length <= bufIndex) {
-                        this.buffer.push(0);
-                    }
-                    if (bit) {
-                        this.buffer[bufIndex] |= (0x80 >>> (this.length % 8) );
-                    }
-                    this.length++;
-                }
-            };
-            
-            for (var i = 0; i < dataList.length; i++) {
-                var data = dataList[i];
-                buffer.put(data.mode, 4);
-                buffer.put(data.getLength(), 8); // simplified length bits (Byte mode 1-9 is 8 bits)
-                data.write(buffer);
-            }
-            
-            // Calc Total Data Count
-            var totalDataCount = 0;
-            for (var i = 0; i < rsBlocks.length; i++) {
-                totalDataCount += rsBlocks[i].dataCount;
-            }
-            
-            if (buffer.length > totalDataCount * 8) {
-                throw new Error("code length overflow. (" + buffer.length + ">" + totalDataCount * 8 + ")");
-            }
-            
-            // Terminate bits
-            if (buffer.length + 4 <= totalDataCount * 8) {
-                buffer.put(0, 4);
-            }
-            while (buffer.length % 8 != 0) {
-                buffer.putBit(false);
-            }
-            
-            // Padding
-            while (true) {
-                if (buffer.length >= totalDataCount * 8) break;
-                buffer.put(0xec, 8);
-                if (buffer.length >= totalDataCount * 8) break;
-                buffer.put(0x11, 8);
-            }
-            
-            return createBytes(buffer, rsBlocks);
-        };
-
-        var getRSBlocks = function(typeNumber, errorCorrectionLevel) {
-            var index = (typeNumber - 1) * 4;
-            switch (errorCorrectionLevel) {
-            case 'L' : index += 0; break;
-            case 'M' : index += 1; break;
-            case 'Q' : index += 2; break;
-            case 'H' : index += 3; break;
-            }
-            var row = RS_BLOCK_TABLE[index] || RS_BLOCK_TABLE[0];
-            return [{ totalCount: row[1], dataCount: row[2] }];
-        };
-
-        var createBytes = function(buffer, rsBlocks) {
-            var offset = 0;
-            var maxDcCount = 0;
-            var maxEcCount = 0;
-            var dcdata = new Array(rsBlocks.length);
-            var ecdata = new Array(rsBlocks.length);
-            
-            for (var r = 0; r < rsBlocks.length; r++) {
-                var dcCount = rsBlocks[r].dataCount;
-                var ecCount = rsBlocks[r].totalCount - dcCount;
-                maxDcCount = Math.max(maxDcCount, dcCount);
-                maxEcCount = Math.max(maxEcCount, ecCount);
-                
-                dcdata[r] = new Array(dcCount);
-                for (var i = 0; i < dcdata[r].length; i++) {
-                    dcdata[r][i] = 0xff & buffer.buffer[i + offset];
-                }
-                offset += dcCount;
-                
-                var rsPoly = getErrorCorrectionPolynomial(ecCount);
-                var rawPoly = {
-                    num: dcdata[r],
-                    getLength: function() { return this.num.length; },
-                    get: function(i) { return this.num[i]; },
-                    multiply: function(e) {
-                        var num = new Array(this.getLength() + e.getLength() - 1);
-                        for (var i = 0; i < this.getLength(); i++) {
-                            for (var j = 0; j < e.getLength(); j++) {
-                                num[i + j] ^= gexp(glog(this.get(i) ) + glog(e.get(j) ) );
-                            }
-                        }
-                        return { num: num, getLength: function() { return this.num.length; }, get: function(i) { return this.num[i]; } };
-                    },
-                    mod: function(e) {
-                        if (this.getLength() - e.getLength() < 0) return this;
-                        var ratio = glog(this.get(0) ) - glog(e.get(0) );
-                        var num = new Array(this.getLength() );
-                        for (var i = 0; i < this.getLength(); i++) {
-                            num[i] = this.get(i);
-                        }
-                        for (var i = 0; i < e.getLength(); i++) {
-                            num[i] ^= gexp(glog(e.get(i) ) + ratio);
-                        }
-                        return {
-                            num: num.slice(1),
-                            getLength: function() { return this.num.length; },
-                            get: function(i) { return this.num[i]; },
-                            mod: this.mod,
-                            multiply: this.multiply
-                        };
-                    }
-                };
-                
-                var modPoly = rawPoly.multiply({
-                    num: new Array(ecCount + 1).fill(0).map((v, i) => i == 0 ? 1 : 0),
-                    getLength: function() { return this.num.length; },
-                    get: function(i) { return this.num[i]; }
-                }).mod(rsPoly);
-                
-                ecdata[r] = new Array(rsPoly.getLength() - 1);
-                for (var i = 0; i < ecdata[r].length; i++) {
-                    var modIndex = i + modPoly.getLength() - ecdata[r].length;
-                    ecdata[r][i] = (modIndex >= 0)? modPoly.get(modIndex) : 0;
-                }
-            }
-            
-            var totalCodeCount = 0;
-            for (var i = 0; i < rsBlocks.length; i++) {
-                totalCodeCount += rsBlocks[i].totalCount;
-            }
-            
-            var data = new Array(totalCodeCount);
-            var index = 0;
-            for (var i = 0; i < maxDcCount; i++) {
-                for (var r = 0; r < rsBlocks.length; r++) {
-                    if (i < dcdata[r].length) {
-                        data[index++] = dcdata[r][i];
-                    }
-                }
-            }
-            for (var i = 0; i < maxEcCount; i++) {
-                for (var r = 0; r < rsBlocks.length; r++) {
-                    if (i < ecdata[r].length) {
-                        data[index++] = ecdata[r][i];
-                    }
-                }
-            }
-            return data;
-        };
-
-        var getErrorCorrectionPolynomial = function(errorCorrectionLength) {
-            var a = { num: [1], getLength: function() { return this.num.length; }, get: function(i) { return this.num[i]; } };
-            for (var i = 0; i < errorCorrectionLength; i++) {
-                var next = { num: [1, gexp(i)], getLength: function() { return this.num.length; }, get: function(i) { return this.num[i]; } };
-                a = {
-                    num: multiplyPoly(a, next),
-                    getLength: function() { return this.num.length; },
-                    get: function(i) { return this.num[i]; }
-                };
-            }
-            return a;
-        };
-
-        var multiplyPoly = function(p1, p2) {
-            var num = new Array(p1.getLength() + p2.getLength() - 1).fill(0);
-            for (var i = 0; i < p1.getLength(); i++) {
-                for (var j = 0; j < p2.getLength(); j++) {
-                    num[i + j] ^= gexp(glog(p1.get(i) ) + glog(p2.get(j) ) );
-                }
-            }
-            return num;
-        };
-
-        // Galois Field Math
-        var EXP_TABLE = new Array(256);
-        var LOG_TABLE = new Array(256);
-        for (var i = 0; i < 8; i++) EXP_TABLE[i] = 1 << i;
-        for (var i = 8; i < 256; i++) EXP_TABLE[i] = EXP_TABLE[i - 4] ^ EXP_TABLE[i - 5] ^ EXP_TABLE[i - 6] ^ EXP_TABLE[i - 8];
-        for (var i = 0; i < 255; i++) LOG_TABLE[EXP_TABLE[i]] = i;
-
-        var gexp = function(n) {
-            while (n < 0) n += 255;
-            while (n >= 255) n -= 255;
-            return EXP_TABLE[n];
-        };
-        var glog = function(n) {
-            if (n < 1 || 255 < n) throw new Error("glog(" + n + ")");
-            return LOG_TABLE[n];
-        };
-
-        return {
-            drawQRCode: function(text, containerId) {
-                try {
-                    // Type 5 fits most Room URLs safely
-                    var qr = createQRCode(text, 6, 'L');
-                    qr.addData(text);
-                    qr.make();
-                    
-                    var container = document.getElementById(containerId);
-                    if (!container) return;
-                    container.innerHTML = "";
-                    
-                    var size = qr.getModuleCount();
-                    var scale = 3; // Pixel scale
-                    
-                    var canvas = document.createElement('canvas');
-                    canvas.width = size * scale;
-                    canvas.height = size * scale;
-                    var ctx = canvas.getContext('2d');
-                    
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = '#000000';
-                    
-                    for (var r = 0; r < size; r++) {
-                        for (var c = 0; c < size; c++) {
-                            if (qr.isDark(r, c)) {
-                                ctx.fillRect(c * scale, r * scale, scale, scale);
-                            }
-                        }
-                    }
-                    
-                    // Apply style to fit container
-                    canvas.style.width = "100%";
-                    canvas.style.height = "100%";
-                    container.appendChild(canvas);
-                } catch (e) {
-                    console.error("QR Code Error:", e);
-                }
-            }
-        };
-    })();
-</script>
-
-<!-- Firebase Web SDK & Firebase App Core Setup -->
-<script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    // Global variables from environmental variables (fallbacks provided)
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-        apiKey: "fake-api-key",
-        authDomain: "fake-auth-domain",
-        projectId: "fake-project-id",
-        storageBucket: "fake-storage-bucket",
-        messagingSenderId: "fake-sender-id",
-        appId: "fake-app-id"
-    };
-
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'ww-constrained-werewolf';
-
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-
-    let user = null;
-    let roomCode = "";
-    let isHost = false;
-    let myName = "";
-    let localPlayerId = "";
-    let roomUnsubscribe = null;
-    let filterPlayerId = ""; // ログ検索フィルター
-
-    // ゲーム同期ステータス
-    let gameState = {
-        status: "lobby", // lobby, reveal, discussion, vote, final, result
-        players: {}, // id -> { name, role, suspect, isReady, topic, constraint, hint }
-        wordLogs: [], // { id, playerId, name, word, timestamp }
-        settings: { total: 4, wolf: 1, useSeer: false, useAI: false, topic: "", constraint: "", hint: "" },
-        currentTurn: 1,
-        timerLeft: 30,
-        isTimerRunning: false,
-        winner: "", // villager / wolf
-        votes: {}, // playerId -> targetId / 'skip'
-        finalVoterIds: []
-    };
-
-    // 認証とURLクエリパラメータの確認（スキャン参加用）
-    onAuthStateChanged(auth, (u) => {
-        if (u) {
-            user = u;
-            localPlayerId = u.uid;
-        } else {
-            signInAnonymously(auth).then((cred) => {
-                user = cred.user;
-                localPlayerId = cred.user.uid;
-            });
-        }
-        checkUrlForRoomCode();
-    });
-
-    // URLのパラメータからルームコードを自動検出（QRスキャンでの自動入室用）
-    function checkUrlForRoomCode() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('room');
-        if (code && code.length === 4) {
-            document.getElementById("join-room-code").value = code;
-            // 参加画面に直接遷移
-            initPlayer();
-        }
-    }
-
-    // --- 画面表示制御 ---
-    function switchScreen(screenId) {
-        const screens = ["top-screen", "host-setup-screen", "player-lobby-screen", "loading-screen", "reveal-screen", "game-screen", "vote-screen", "result-screen", "final-solution-screen"];
-        screens.forEach(s => {
-            const el = document.getElementById(s);
-            if (el) el.classList.add("hidden");
-        });
-        const activeEl = document.getElementById(screenId);
-        if (activeEl) activeEl.classList.remove("hidden");
-    }
-
-    // --- 数値増減ボタンの処理 ---
-    window.changeValue = function(id, delta, min, max) {
-        const input = document.getElementById(id);
-        const display = document.getElementById(id + '-display');
-        let val = parseInt(input.value, 10);
-        
-        val += delta;
-        if (val < min) val = min;
-        if (val > max) val = max;
-
-        input.value = val;
-        if (display) display.textContent = val;
-        
-        if (isHost && roomCode) {
-            updateRoomData({
-                "settings.wolf": val
-            });
-        }
-    };
-
-    // ホスト初期化
-    window.initHost = async () => {
-        if (!user) return alert("認証がまだ完了していません。少々お待ちください。");
-        isHost = true;
-        roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
-        
-        document.getElementById("host-room-code").textContent = roomCode;
-        switchScreen("host-setup-screen");
-
-        // ★同期用URLをQRコードに変換して描画
-        // ホストの現在のアクセスURLにパラメータ (?room=コード) をくっつける
-        const joinUrl = window.location.origin + window.location.pathname + "?room=" + roomCode;
-        QRCode.drawQRCode(joinUrl, "qrcode-container");
-
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', roomCode);
-        const initialRoomState = {
-            roomId: roomCode,
-            status: "lobby",
-            players: {
-                [localPlayerId]: { name: "ホスト", role: "", suspect: false, isReady: false, active: true }
-            },
-            wordLogs: [],
-            settings: {
-                total: 4,
-                wolf: 1,
-                useSeer: false,
-                useAI: false,
-                topic: "",
-                constraint: "",
-                hint: ""
-            },
-            currentTurn: 1,
-            timerLeft: 30,
-            isTimerRunning: false,
-            winner: "",
-            votes: {},
-            finalVoterIds: []
-        };
-
-        await setDoc(roomRef, initialRoomState);
-        subscribeRoom(roomCode);
-    };
-
-    // プレイヤー参加画面
-    window.initPlayer = () => {
-        const codeInput = document.getElementById("join-room-code").value.trim().toUpperCase();
-        if (codeInput.length !== 4) {
-            return alert("4文字の部屋コードを入力してください。");
-        }
-        roomCode = codeInput;
-        isHost = false;
-        document.getElementById("player-room-code").textContent = roomCode;
-        switchScreen("player-lobby-screen");
-    };
-
-    // 参加ボタン
-    window.submitPlayerName = async () => {
-        const nameInput = document.getElementById("player-my-name").value.trim();
-        if (!nameInput) return alert("名前を入力してください。");
-        myName = nameInput;
-
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', roomCode);
-        const roomSnap = await getDoc(roomRef);
-        if (!roomSnap.exists()) {
-            return alert("部屋が見つかりませんでした。コードが合っているか確認してください。");
-        }
-
-        const roomData = roomSnap.data();
-        
-        // 名前の重複防止
-        const players = roomData.players || {};
-        const isDuplicate = Object.values(players).some(p => p.name.toLowerCase() === nameInput.toLowerCase());
-        if (isDuplicate) {
-            return alert("その名前はすでに同じ部屋で使用されています。別の名前にしてください。");
-        }
-
-        // 入室
-        players[localPlayerId] = { name: myName, role: "", suspect: false, isReady: false, active: true };
-        await updateDoc(roomRef, { players });
-        
-        subscribeRoom(roomCode);
-    };
-
-    // Firestoreのルーム状態を受信
-    function subscribeRoom(code) {
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', code);
-        roomUnsubscribe = onSnapshot(roomRef, (snapshot) => {
-            if (!snapshot.exists()) {
-                alert("部屋が削除されたか、見つかりません。");
-                fullResetApp();
-                return;
-            }
-            const data = snapshot.data();
-            gameState = data;
-            syncUI();
-        }, (error) => {
-            console.error("Room sync error:", error);
-        });
-    }
-
-    async function updateRoomData(updates) {
-        if (!roomCode) return;
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', roomCode);
-        await updateDoc(roomRef, updates);
-    }
-
-    // --- UIとルーム状況の完全な同期 ---
-    function syncUI() {
-        const totalConnected = Object.keys(gameState.players).length;
-        
-        if (isHost) {
-            document.getElementById("connected-count").textContent = `${totalConnected} 人`;
-            const lobbyList = document.getElementById("player-lobby-list");
-            lobbyList.innerHTML = "";
-            Object.values(gameState.players).forEach(p => {
-                const span = document.createElement("span");
-                span.className = "bg-gray-700 px-3 py-1 rounded-full text-white font-bold border border-gray-600";
-                span.textContent = p.name;
-                lobbyList.appendChild(span);
-            });
-            document.getElementById("input-total").value = totalConnected;
-            document.getElementById("input-total-display").textContent = totalConnected;
-        } else {
-            const playerLobby = document.getElementById("lobby-synced-players");
-            playerLobby.innerHTML = "";
-            Object.values(gameState.players).forEach(p => {
-                const span = document.createElement("span");
-                span.className = "bg-gray-700 px-3 py-1 rounded-full text-white text-xs font-bold";
-                span.textContent = p.name;
-                playerLobby.appendChild(span);
-            });
-        }
-
-        if (gameState.status === "lobby") {
-            if (isHost) {
-                switchScreen("host-setup-screen");
-            } else {
-                if (gameState.players[localPlayerId] && gameState.players[localPlayerId].name) {
-                    switchScreen("player-lobby-screen");
-                }
-            }
-        } else if (gameState.status === "loading") {
-            switchScreen("loading-screen");
-        } else if (gameState.status === "reveal") {
-            setupRevealScreen();
-        } else if (gameState.status === "discussion") {
-            setupDiscussionScreen();
-        } else if (gameState.status === "vote" || gameState.status === "final") {
-            setupVoteScreen();
-        } else if (gameState.status === "result") {
-            setupResultScreen();
-        }
-    }
-
-    // --- 個人確認 & カンペ画面の処理 ---
-    function setupRevealScreen() {
-        switchScreen("reveal-screen");
-        const me = gameState.players[localPlayerId];
-        if (!me) return;
-
-        document.getElementById("reveal-topic").textContent = me.topic;
-        document.getElementById("reveal-role").textContent = `役職: ${me.role}`;
-        
-        const constraintBox = document.getElementById("reveal-constraint-box");
-        const hintBox = document.getElementById("reveal-hint-box");
-
-        if (me.role === "人狼") {
-            constraintBox.classList.remove("hidden");
-            hintBox.classList.add("hidden");
-            document.getElementById("reveal-constraint").textContent = `「${me.constraint}」`;
-        } else if (me.role === "占い師") {
-            constraintBox.classList.add("hidden");
-            hintBox.classList.remove("hidden");
-            document.getElementById("reveal-hint").textContent = `「${me.hint}」`;
-        } else {
-            constraintBox.classList.remove("hidden");
-            hintBox.classList.add("hidden");
-            document.getElementById("reveal-constraint").textContent = "なし";
-        }
-
-        const isReady = me.isReady;
-        const btn = document.getElementById("btn-ready-discuss");
-        const waitMsg = document.getElementById("wait-other-ready-msg");
-        if (isReady) {
-            btn.classList.add("hidden");
-            waitMsg.classList.remove("hidden");
-        } else {
-            btn.classList.remove("hidden");
-            waitMsg.classList.add("hidden");
-        }
-    }
-
-    window.playerReadyToDiscuss = async () => {
-        const path = `players.${localPlayerId}.isReady`;
-        await updateRoomData({
-            [path]: true
-        });
-
-        if (isHost) {
-            checkAllReadyAndDiscuss();
-        }
-    };
-
-    async function checkAllReadyAndDiscuss() {
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', roomCode);
-        const snap = await getDoc(roomRef);
-        const data = snap.data();
-        
-        const allReady = Object.values(data.players).every(p => p.isReady);
-        if (allReady) {
-            await updateRoomData({
-                status: "discussion",
-                currentTurn: 1,
-                timerLeft: 30,
-                isTimerRunning: true
-            });
-            startLocalTimerLoop();
-        }
-    }
-
-    let localTimerInterval = null;
-    function startLocalTimerLoop() {
-        if (!isHost) return;
-        if (localTimerInterval) clearInterval(localTimerInterval);
-
-        localTimerInterval = setInterval(async () => {
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', roomCode);
-            const snap = await getDoc(roomRef);
-            if (!snap.exists()) return clearInterval(localTimerInterval);
-            const data = snap.data();
-
-            if (data.status !== "discussion") {
-                clearInterval(localTimerInterval);
-                return;
-            }
-
-            if (data.timerLeft > 0) {
-                await updateDoc(roomRef, {
-                    timerLeft: data.timerLeft - 1
-                });
-            } else {
-                clearInterval(localTimerInterval);
-                await updateDoc(roomRef, {
-                    status: "vote",
-                    isTimerRunning: false
-                });
-            }
-        }, 1000);
-    }
-
-    window.forceSkipTimer = async () => {
-        if (!isHost) return alert("タイマーの強制スキップはホストのみ実行可能です。");
-        if (localTimerInterval) clearInterval(localTimerInterval);
-        await updateRoomData({
-            status: "vote",
-            timerLeft: 0,
-            isTimerRunning: false
-        });
-    };
-
-    // --- 話し合い & ワードログ入力画面 ---
-    function setupDiscussionScreen() {
-        switchScreen("game-screen");
-        const me = gameState.players[localPlayerId];
-        if (!me) return;
-
-        document.getElementById("turn-display-text").textContent = `${gameState.currentTurn}週目`;
-        document.getElementById("my-topic-tab").textContent = me.topic;
-        document.getElementById("game-timer").textContent = gameState.timerLeft;
-
-        const timerEl = document.getElementById("game-timer");
-        if (gameState.timerLeft <= 10) {
-            timerEl.className = "text-3xl font-black text-red-500 num-font";
-        } else {
-            timerEl.className = "text-3xl font-black text-blue-400 num-font";
-        }
-
-        document.getElementById("mini-my-role").textContent = me.role;
-        const miniConstraint = document.getElementById("mini-my-constraint");
-        if (me.role === "人狼") {
-            miniConstraint.textContent = me.constraint;
-        } else if (me.role === "占い師") {
-            miniConstraint.textContent = `ヒント: ${me.hint}`;
-        } else {
-            miniConstraint.textContent = "なし";
-        }
-
-        const playerBadgesArea = document.getElementById("game-player-badges");
-        playerBadgesArea.innerHTML = "";
-        Object.entries(gameState.players).forEach(([id, p]) => {
-            const span = document.createElement("span");
-            if (p.suspect) {
-                span.className = "suspect-badge bg-amber-600 text-white border border-amber-500 px-3 py-1 rounded-full text-xs font-bold";
-                span.textContent = `🕵️‍♂️ ${p.name} (容疑者)`;
-            } else {
-                span.className = "survivor-badge bg-blue-900 text-blue-100 border border-blue-700 px-3 py-1 rounded-full text-xs font-bold";
-                span.textContent = `👤 ${p.name}`;
-            }
-            playerBadgesArea.appendChild(span);
-        });
-
-        const btnWait = document.getElementById("btn-next-turn-wait");
-        if (gameState.timerLeft > 0) {
-            btnWait.disabled = true;
-            btnWait.textContent = "話し合いタイマーの終了を待っています";
-            btnWait.className = "w-full py-4 bg-gray-850 text-gray-500 font-extrabold text-sm rounded-xl cursor-not-allowed";
-        } else {
-            btnWait.disabled = false;
-            btnWait.textContent = "投票フェーズへ移行";
-            btnWait.className = "w-full py-4 bg-blue-600 hover:bg-blue-500 font-extrabold text-sm text-white rounded-xl shadow-lg";
-            btnWait.onclick = () => {
-                updateRoomData({ status: "vote" });
-            };
-        }
-
-        renderWordTimeline();
-    }
-
-    window.sendWordLog = async () => {
-        const input = document.getElementById("input-word-log");
-        const word = input.value.trim();
-        if (!word) return;
-
-        const currentLogs = gameState.wordLogs || [];
-        
-        const isDuplicate = currentLogs.some(log => log.word.toLowerCase() === word.toLowerCase() || log.word.toLowerCase() === currentTopic.toLowerCase());
-        if (isDuplicate) {
-            return alert("そのワードは、今回のお題か、すでに誰かが送信した発言履歴と重複しています！被りは禁止です！");
-        }
-
-        const newLog = {
-            id: Math.random().toString(36).substring(2, 9),
-            playerId: localPlayerId,
-            name: gameState.players[localPlayerId].name,
-            word: word,
-            timestamp: Date.now()
-        };
-
-        currentLogs.push(newLog);
-        await updateRoomData({
-            wordLogs: currentLogs
-        });
-
-        input.value = "";
-    };
-
-    window.setFilter = (playerId) => {
-        filterPlayerId = playerId;
-        renderWordTimeline();
-    };
-
-    window.clearFilter = () => {
-        filterPlayerId = "";
-        renderWordTimeline();
-    };
-
-    function renderWordTimeline() {
-        const timeline = document.getElementById("word-timeline");
-        timeline.innerHTML = "";
-
-        const logs = gameState.wordLogs || [];
-        const filteredLogs = filterPlayerId ? logs.filter(log => log.playerId === filterPlayerId) : logs;
-
-        if (filteredLogs.length === 0) {
-            timeline.innerHTML = `<p class="text-center text-xs text-gray-500 py-4">${filterPlayerId ? '選択した人の発言履歴はありません。' : 'まだ発言ワードの登録はありません。'}</p>`;
-            return;
-        }
-
-        filteredLogs.forEach(log => {
-            const div = document.createElement("div");
-            div.className = "flex justify-between items-center bg-gray-800 border border-gray-700 p-2.5 rounded-lg";
-            
-            const nameBtn = document.createElement("button");
-            nameBtn.className = `font-bold text-xs text-blue-300 hover:underline ${filterPlayerId === log.playerId ? 'text-emerald-400 underline font-black' : ''}`;
-            nameBtn.textContent = `${log.name} :`;
-            nameBtn.onclick = () => setFilter(log.playerId);
-
-            const wordSpan = document.createElement("span");
-            wordSpan.className = "text-sm text-white font-extrabold flex-grow ml-2";
-            wordSpan.textContent = `「${log.word}」`;
-
-            div.appendChild(nameBtn);
-            div.appendChild(wordSpan);
-            timeline.appendChild(div);
-        });
-    }
-
-    // --- 投票 ＆ 最終解決画面の処理 ---
-    function setupVoteScreen() {
-        switchScreen("vote-screen");
-        const me = gameState.players[localPlayerId];
-        if (!me) return;
-
-        const isFinal = (gameState.status === "final");
-        const title = document.getElementById("vote-title");
-        const subtitle = document.getElementById("vote-subtitle");
-        const finalInfo = document.getElementById("final-solution-info");
-
-        const area = document.getElementById("vote-buttons-area");
-        area.innerHTML = "";
-
-        if (isFinal) {
-            title.textContent = "最終解決 (解答権の行使)";
-            subtitle.textContent = "容疑者リストに入ったメンバーで合意して、人狼だと思う生存者を選択してください。";
-            finalInfo.classList.remove("hidden");
-
-            const suspectNames = Object.values(gameState.players).filter(p => p.suspect).map(p => p.name).join(", ");
-            document.getElementById("final-voters").textContent = `解答権を持つ容疑者: ${suspectNames || "全員 (誰も容疑者がいないため)"}`;
-
-            const hasVotedRight = me.suspect || Object.values(gameState.players).every(p => !p.suspect);
-
-            Object.entries(gameState.players).forEach(([id, p]) => {
-                if (!p.suspect) {
-                    const btn = document.createElement("button");
-                    btn.className = "w-full py-4 text-sm font-extrabold rounded-xl transition shadow border text-left px-5 flex justify-between items-center bg-amber-600 hover:bg-amber-500 text-white border-amber-500";
-                    btn.innerHTML = `<span>🎯 ${p.name} を人狼として告発</span>`;
-                    
-                    if (!hasVotedRight) {
-                        btn.disabled = true;
-                        btn.className = "w-full py-4 text-sm font-extrabold rounded-xl opacity-40 cursor-not-allowed bg-gray-800 text-gray-500 px-5 text-left";
-                    } else {
-                        btn.onclick = () => submitVote(id);
-                    }
-                    area.appendChild(btn);
-                }
-            });
-
-            document.getElementById("btn-skip-vote").classList.add("hidden");
-
-        } else {
-            title.textContent = "人狼の投票";
-            subtitle.textContent = "投票権を持つ全員で合意の上、人狼を1名選択して告発してください。";
-            finalInfo.classList.add("hidden");
-
-            Object.entries(gameState.players).forEach(([id, p]) => {
-                if (!p.suspect) {
-                    const btn = document.createElement("button");
-                    btn.className = "w-full py-4 text-sm font-extrabold rounded-xl transition shadow bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 text-left px-5";
-                    btn.textContent = `👤 ${p.name} に投票`;
-                    
-                    if (me.suspect) {
-                        btn.disabled = true;
-                        btn.className = "w-full py-4 text-sm font-extrabold rounded-xl opacity-40 cursor-not-allowed bg-gray-800 text-gray-500 px-5 text-left";
-                    } else {
-                        btn.onclick = () => submitVote(id);
-                    }
-                    area.appendChild(btn);
-                }
-            });
-
-            const skipBtn = document.getElementById("btn-skip-vote");
-            if (gameState.currentTurn === 1 && !me.suspect) {
-                skipBtn.classList.remove("hidden");
-            } else {
-                skipBtn.classList.add("hidden");
-            }
-        }
-
-        const isVoted = gameState.votes[localPlayerId];
-        const waitMsg = document.getElementById("vote-waiting-msg");
-        if (isVoted) {
-            waitMsg.classList.remove("hidden");
-        } else {
-            waitMsg.classList.add("hidden");
-        }
-    }
-
-    window.submitVote = async (targetId) => {
-        const path = `votes.${localPlayerId}`;
-        await updateRoomData({
-            [path]: targetId
-        });
-
-        if (isHost) {
-            checkAllVotesComplete();
-        }
-    };
-
-    async function checkAllVotesComplete() {
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', roomCode);
-        const snap = await getDoc(roomRef);
-        const data = snap.data();
-
-        const isFinal = (data.status === "final");
-        
-        let voters = [];
-        if (isFinal) {
-            voters = Object.entries(data.players).filter(([id, p]) => p.suspect).map(([id]) => id);
-            if (voters.length === 0) {
-                voters = Object.keys(data.players);
-            }
-        } else {
-            voters = Object.entries(data.players).filter(([id, p]) => !p.suspect).map(([id]) => id);
-        }
-
-        const allVoted = voters.every(voterId => data.votes[voterId] !== undefined && data.votes[voterId] !== null);
-        
-        if (allVoted) {
-            const voteCounts = {};
-            voters.forEach(voterId => {
-                const target = data.votes[voterId];
-                voteCounts[target] = (voteCounts[target] || 0) + 1;
-            });
-
-            let maxVotes = 0;
-            let targetId = "skip";
-            Object.entries(voteCounts).forEach(([id, count]) => {
-                if (count > maxVotes) {
-                    maxVotes = count;
-                    targetId = id;
-                }
-            });
-
-            const updates = { votes: {} };
-
-            if (isFinal) {
-                const targetPlayer = data.players[targetId];
-                if (targetPlayer && targetPlayer.role === "人狼") {
-                    updates.status = "result";
-                    updates.winner = "villager";
-                } else {
-                    updates.status = "result";
-                    updates.winner = "wolf";
-                }
-            } else {
-                if (targetId === "skip") {
-                    updates.currentTurn = data.currentTurn + 1;
-                    updates.status = "discussion";
-                    updates.timerLeft = 30;
-                    updates.isTimerRunning = true;
-                } else {
-                    const targetPlayer = data.players[targetId];
-                    if (targetPlayer.role === "人狼") {
-                        updates.status = "result";
-                        updates.winner = "villager";
-                    } else {
-                        const suspectPath = `players.${targetId}.suspect`;
-                        updates[suspectPath] = true;
-
-                        const survivors = Object.entries(data.players).filter(([id, p]) => {
-                            if (id === targetId) return false;
-                            return !p.suspect;
-                        });
-                        const wolfCount = Object.values(data.players).filter(p => p.role === "人狼").length;
-                        const maxTurn = Object.values(data.players).filter(p => p.role !== "人狼").length - 1;
-
-                        if ((data.currentTurn + 1) > maxTurn || survivors.length <= (wolfCount + 1)) {
-                            updates.status = "final";
-                        } else {
-                            updates.currentTurn = data.currentTurn + 1;
-                            updates.status = "discussion";
-                            updates.timerLeft = 30;
-                            updates.isTimerRunning = true;
-                        }
-                    }
-                }
-            }
-
-            await updateDoc(roomRef, updates);
-
-            if (updates.status === "discussion") {
-                startLocalTimerLoop();
-            }
-        }
-    }
-
-    // --- リザルト結果画面 ---
-    function setupResultScreen() {
-        switchScreen("result-screen");
-
-        const winner = gameState.winner;
-        const winnerTitle = document.getElementById("result-winner");
-        if (winner === "villager") {
-            winnerTitle.textContent = "村人陣営の勝ち！ 🎉";
-            winnerTitle.className = "text-3xl font-black mt-1 text-emerald-400";
-        } else {
-            winnerTitle.textContent = "人狼陣営の勝ち！ 🐺";
-            winnerTitle.className = "text-3xl font-black mt-1 text-red-500";
-        }
-
-        document.getElementById("result-topic").textContent = gameState.settings.topic;
-        document.getElementById("result-constraint").textContent = gameState.settings.constraint;
-
-        const hintRow = document.getElementById("result-hint-row");
-        if (gameState.settings.useSeer) {
-            hintRow.classList.remove("hidden");
-            document.getElementById("result-hint").textContent = gameState.settings.hint;
-        } else {
-            hintRow.classList.add("hidden");
-        }
-
-        const list = document.getElementById("result-players-list");
-        list.innerHTML = "";
-        Object.values(gameState.players).forEach(p => {
-            const div = document.createElement("div");
-            div.className = "flex justify-between items-center border-b border-gray-800 pb-1.5";
-            
-            const nameSpan = document.createElement("span");
-            nameSpan.className = "font-bold text-white";
-            nameSpan.textContent = p.name;
-
-            const stateSpan = document.createElement("span");
-            stateSpan.className = p.suspect ? "text-amber-500 text-xxs font-bold" : "text-blue-400 text-xxs font-bold";
-            stateSpan.textContent = p.suspect ? "[容疑者 / 後回し]" : "[生存者]";
-
-            const roleSpan = document.createElement("span");
-            if (p.role === "人狼") {
-                roleSpan.className = "text-red-400 font-extrabold";
-                roleSpan.textContent = "人狼";
-            } else if (p.role === "占い師") {
-                roleSpan.className = "text-purple-400 font-extrabold";
-                roleSpan.textContent = "占い師";
-            } else {
-                roleSpan.className = "text-gray-300";
-                roleSpan.textContent = "村人";
-            }
-
-            const leftPart = document.createElement("div");
-            leftPart.className = "space-x-2";
-            leftPart.appendChild(nameSpan);
-            leftPart.appendChild(stateSpan);
-
-            div.appendChild(leftPart);
-            div.appendChild(roleSpan);
-            list.appendChild(div);
-        });
-
-        const btnRestart = document.getElementById("btn-restart-setup");
-        if (isHost) {
-            btnRestart.classList.remove("hidden");
-        } else {
-            btnRestart.classList.add("hidden");
-        }
-    }
-
-    // もう一度遊ぶ (ホストからルームをロビーへ再セットアップ)
-    window.goToSetup = async () => {
-        if (!isHost) return;
-        
-        const players = { ...gameState.players };
-        Object.keys(players).forEach(id => {
-            players[id].role = "";
-            players[id].suspect = false;
-            players[id].isReady = false;
-            players[id].topic = "";
-            players[id].constraint = "";
-            players[id].hint = "";
-        });
-
-        await updateRoomData({
-            status: "lobby",
-            wordLogs: [],
-            votes: {},
-            winner: "",
-            currentTurn: 1,
-            timerLeft: 30,
-            isTimerRunning: false,
-            players: players
-        });
-    };
-
-    // --- 親機ゲーム開始 ---
-    window.hostStartMatch = async () => {
-        const total = Object.keys(gameState.players).length;
-        const wolfCount = parseInt(document.getElementById("setup-wolf").value, 10);
-        const useSeer = document.getElementById("host-seer-toggle").checked;
-        const useAI = document.getElementById("host-ai-toggle").checked;
-
-        if (total < 3) return alert("同期しているプレイヤー数が3人未満です。3人以上で開始してください。");
-        if (wolfCount >= total) return alert("人狼の数はプレイヤー総数未満にしてください。");
-        if (useSeer && total < 4) return alert("占い師を入れる場合は、接続人数が最低4人以上必要です。");
-        if (useSeer && total - wolfCount < 2) return alert("占い師を入れる場合、村人の人数枠が不足しています。");
-
-        let topic = "", constraint = "", hint = "";
-
-        if (useAI) {
-            await updateRoomData({ status: "loading" });
-            try {
-                const aiData = await fetchAiTopic();
-                topic = aiData.topic;
-                constraint = aiData.constraint;
-                hint = aiData.hint || "ヒントなし";
-            } catch (err) {
-                alert(err.message);
-                await updateRoomData({ status: "lobby" });
-                return;
-            }
-        } else {
-            topic = document.getElementById("host-topic").value.trim();
-            constraint = document.getElementById("host-constraint").value.trim();
-            hint = document.getElementById("host-hint").value.trim();
-
-            if (!topic) return alert("お題を入力してください。");
-            if (!constraint) return alert("人狼の制約を入力してください。");
-            if (useSeer && !hint) return alert("占い師のヒントを入力してください。");
-        }
-
-        let roles = [];
-        for (let i = 0; i < total; i++) roles.push("村人");
-        for (let i = 0; i < wolfCount; i++) roles[i] = "人狼";
-        if (useSeer) roles[wolfCount] = "占い師";
-
-        for (let i = roles.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [roles[i], roles[j]] = [roles[j], roles[i]];
-        }
-
-        const players = { ...gameState.players };
-        const playerIds = Object.keys(players);
-
-        playerIds.forEach((id, index) => {
-            players[id].role = roles[index];
-            players[id].topic = topic;
-            players[id].suspect = false;
-            players[id].isReady = false;
-            
-            if (roles[index] === "人狼") {
-                players[id].constraint = constraint;
-            } else if (roles[index] === "占い師") {
-                players[id].hint = hint;
-            }
-        });
-
-        await updateRoomData({
-            status: "reveal",
-            "settings.topic": topic,
-            "settings.constraint": constraint,
-            "settings.hint": hint,
-            "settings.useSeer": useSeer,
-            "settings.useAI": useAI,
-            players: players,
-            wordLogs: [],
-            votes: {},
-            winner: ""
-        });
-    };
-
-    window.toggleHostAIMode = () => {
-        const useAI = document.getElementById("host-ai-toggle").checked;
-        document.getElementById("host-manual-area").style.display = useAI ? "none" : "block";
-        toggleHostSeer();
-    };
-
-    window.toggleHostSeer = () => {
-        const useSeer = document.getElementById("host-seer-toggle").checked;
-        const useAI = document.getElementById("host-ai-toggle").checked;
-        document.getElementById("host-seer-area").style.display = (useSeer && !useAI) ? "block" : "none";
-    };
-
-    window.setHostRandomTopic = () => {
-        const set = randomSets[Math.floor(Math.random() * randomSets.length)];
-        document.getElementById("host-topic").value = set.topic;
-        document.getElementById("host-constraint").value = set.constraint;
-        document.getElementById("host-hint").value = set.hint;
-    };
-
-    window.quitRoom = () => {
-        if (roomUnsubscribe) roomUnsubscribe();
-        fullResetApp();
-    };
-
-    window.fullResetApp = () => {
-        if (roomUnsubscribe) roomUnsubscribe();
-        roomCode = "";
-        isHost = false;
-        myName = "";
-        filterPlayerId = "";
-        
-        document.getElementById("join-room-code").value = "";
-        document.getElementById("player-my-name").value = "";
-        document.getElementById("host-topic").value = "";
-        document.getElementById("host-constraint").value = "";
-        document.getElementById("host-hint").value = "";
-        document.getElementById("host-seer-toggle").checked = false;
-        document.getElementById("host-ai-toggle").checked = false;
-        
-        toggleHostAIMode();
-        switchScreen("top-screen");
-    };
-
-    window.initOffline = () => {
-        alert("オフライン（1台共有）プレイを行うには、以前生成したスマホ1台専用バージョンをご利用いただくか、この環境を再読み込みしてマルチモードで接続してください。");
-    };
-
-    function saveSettings() {
-        const s = {
-            total: document.getElementById("input-total").value,
-            wolf: document.getElementById("input-wolf").value,
-            useSeer: document.getElementById("host-seer-toggle").checked,
-            useAI: document.getElementById("host-ai-toggle").checked,
-            topic: document.getElementById("host-topic").value,
-            constraint: document.getElementById("host-constraint").value,
-            hint: document.getElementById("host-hint").value
-        };
-        localStorage.setItem("ww_settings_multi", JSON.stringify(s));
-    }
-
-    function loadSettings() {
-        const saved = localStorage.getItem("ww_settings_multi");
-        if (saved) {
-            try {
-                const s = JSON.parse(saved);
-                document.getElementById("input-total").value = s.total || "4";
-                document.getElementById("input-total-display").textContent = s.total || "4";
-                document.getElementById("input-wolf").value = s.wolf || "1";
-                document.getElementById("input-wolf-display").textContent = s.wolf || "1";
-                document.getElementById("host-seer-toggle").checked = s.useSeer || false;
-                document.getElementById("host-ai-toggle").checked = s.useAI || false;
-                document.getElementById("host-topic").value = s.topic || "";
-                document.getElementById("host-constraint").value = s.constraint || "";
-                document.getElementById("host-hint").value = s.hint || "";
-                toggleHostAIMode();
-            } catch(e) {}
-        }
-    }
-</script>
-
+        <span id="winner-pill" class="pill"></span>
+      </header>
+
+      <section class="panel result-hero">
+        <h2 id="winner-title"></h2>
+        <p id="result-reason"></p>
+      </section>
+
+      <section class="panel">
+        <h2>答え合わせ</h2>
+        <dl class="answer-list">
+          <div><dt>お題</dt><dd id="answer-topic"></dd></div>
+          <div><dt>制約</dt><dd id="answer-constraint"></dd></div>
+          <div id="answer-hint-row"><dt>占い師ヒント</dt><dd id="answer-hint"></dd></div>
+        </dl>
+      </section>
+
+      <section class="panel">
+        <h2>役職</h2>
+        <div id="role-list" class="result-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>投票履歴</h2>
+        <div id="vote-history" class="result-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>発言ログ</h2>
+        <div id="result-log" class="word-log"></div>
+      </section>
+
+      <footer class="footer-actions">
+        <button id="restart-button" class="button primary full">同じメンバーでもう一度</button>
+        <button class="button ghost full" data-action="home-clear">トップに戻る</button>
+      </footer>
+    </section>
+  </main>
 </body>
 </html>
-
-```
