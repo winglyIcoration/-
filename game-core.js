@@ -121,6 +121,8 @@
       inputSeconds: 30,
       discussionSeconds: 0,
       maxWeeks: 3,
+      hostParticipates: true,
+      hostName: "マスター",
       autoTopic: false,
       topic: "動物",
       constraint: "サバンナにいる",
@@ -143,6 +145,8 @@
     settings.inputSeconds = clamp(Number(settings.inputSeconds) || 30, 10, 180);
     settings.discussionSeconds = clamp(Number(settings.discussionSeconds) || 0, 0, 600);
     settings.maxWeeks = clamp(Number(settings.maxWeeks) || 3, 1, 10);
+    settings.hostParticipates = input?.hostParticipates !== false;
+    settings.hostName = String(settings.hostName || "マスター").trim() || "マスター";
     settings.autoTopic = Boolean(settings.autoTopic);
     settings.topic = String(settings.topic || "").trim();
     settings.constraint = String(settings.constraint || "").trim();

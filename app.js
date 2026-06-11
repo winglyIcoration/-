@@ -139,9 +139,34 @@
       hostDraftSettings = Core.normalizeSettings(room.settings);
     }
     renderHostSetup();
-    renderPlayers("#host-player-list", true);
+    renderHostPlayers();
+    renderHostParticipant();
     renderHostPhase();
     renderLogs("#host-log");
+  }
+
+  function renderHostPlayers() {
+    const roster = Core.activeRoster(room.players);
+    const visibleRoster = room.phase === Core.PHASES.LOBBY
+      ? roster.filter(player => player.id !== room.hostId)
+      : roster;
+    const players = visibleRoster.map(player => ({
+      name: player.name,
+      role: room.phase === Core.PHASES.RESULT ? player.role : "",
+      suspect: player.suspect
+    }));
+    if (room.phase === Core.PHASES.LOBBY && hostDraftSettings?.hostParticipates) {
+      players.unshift({
+        name: hostDraftSettings.hostName || "マスター",
+        role: "参加予定",
+        suspect: false
+      });
+    }
+    $("#host-player-list").innerHTML = players.map(player => {
+      const role = player.role ? ` / ${player.role}` : "";
+      const suspect = player.suspect ? " / 容疑者" : "";
+      return `<span class="chip ${player.suspect ? "suspect" : ""}">${escapeHtml(player.name)}${escapeHtml(role)}${suspect}</span>`;
+    }).join("") || `<span class="muted">まだ参加者がいません。</span>`;
   }
 
   function renderHostSetup() {
@@ -175,7 +200,16 @@
         <input id="host-use-seer" type="checkbox" ${settings.useSeer ? "checked" : ""}>
       </label>
       <label class="check-row">
-        <span><strong>✨ お題を完全におまかせ</strong><small>通信なしのローカル生成。マスターにも結果まで非公開です。</small></span>
+        <span><strong>マスターも参加する</strong><small>この端末で伏せ入力・開示・投票を行います。</small></span>
+        <input id="host-participates" type="checkbox" ${settings.hostParticipates ? "checked" : ""}>
+      </label>
+      <div id="host-name-row" class="${settings.hostParticipates ? "" : "hidden"}">
+        <label class="field-label">マスターの参加名
+          <input id="host-name" class="input" maxlength="16" value="${escapeHtml(settings.hostName)}">
+        </label>
+      </div>
+      <label class="check-row">
+        <span><strong>お任せ(AI生成)</strong><small>通信なしのローカル生成。設定画面には結果まで非公開です。</small></span>
         <input id="host-auto-topic" type="checkbox" ${settings.autoTopic ? "checked" : ""}>
       </label>
       <div id="manual-topic-fields" class="${settings.autoTopic ? "hidden" : ""}">
@@ -196,6 +230,10 @@
       </div>
     `;
     panel.querySelectorAll("input, select").forEach(input => input.addEventListener("input", collectHostDraft));
+    $("#host-participates").addEventListener("change", () => {
+      collectHostDraft();
+      renderHostSetup();
+    });
     $("#host-auto-topic").addEventListener("change", () => {
       collectHostDraft();
       renderHostSetup();
@@ -215,6 +253,8 @@
       inputSeconds: Number($("#host-input-seconds")?.value || 30),
       discussionSeconds: Number($("#host-discussion-seconds")?.value || 0),
       useSeer: Boolean($("#host-use-seer")?.checked),
+      hostParticipates: Boolean($("#host-participates")?.checked),
+      hostName: $("#host-name")?.value || "マスター",
       autoTopic: Boolean($("#host-auto-topic")?.checked),
       topic: $("#host-topic")?.value || "",
       constraint: $("#host-constraint")?.value || "",
@@ -229,10 +269,29 @@
       const draft = collectHostDraft();
       await Room.mutateRoom(roomCode, state => {
         state.settings = draft;
+        if (draft.hostParticipates) {
+          Core.addOrUpdatePlayer(state, state.hostId, draft.hostName);
+        } else {
+          delete state.players[state.hostId];
+        }
         Core.assignRoles(state);
         return Core.startWeek(state);
       });
     });
+  }
+
+  function renderHostParticipant() {
+    const panel = $("#host-participant-panel");
+    const card = $("#host-player-card");
+    const me = room.players[Room.userId];
+    const playing = Boolean(me && me.active !== false && room.phase !== Core.PHASES.LOBBY);
+    panel.classList.toggle("hidden", !playing);
+    if (!playing) {
+      card.classList.add("hidden");
+      return;
+    }
+    renderPrivateCard(me, "#host-player-card");
+    renderParticipantPhase(panel, me, "host");
   }
 
   function renderHostPhase() {
@@ -321,14 +380,14 @@
   function renderPlayer() {
     const me = room.players[Room.userId];
     $("#player-title").textContent = me ? `${me.name} さん` : "参加者画面";
-    renderPrivateCard(me);
+    renderPrivateCard(me, "#player-card");
     renderPlayerPhase(me);
     renderPlayers("#player-list", false);
     renderLogs("#player-log");
   }
 
-  function renderPrivateCard(me) {
-    const card = $("#player-card");
+  function renderPrivateCard(me, selector) {
+    const card = $(selector);
     if (!me || !me.role || room.phase === Core.PHASES.LOBBY || room.phase === Core.PHASES.RESULT) {
       card.classList.add("hidden");
       return;
@@ -346,7 +405,10 @@
   }
 
   function renderPlayerPhase(me) {
-    const panel = $("#player-phase-panel");
+    renderParticipantPhase($("#player-phase-panel"), me, "player");
+  }
+
+  function renderParticipantPhase(panel, me, prefix) {
     if (!me) {
       panel.innerHTML = `<h2>入室情報がありません</h2><p class="muted">トップに戻って入り直してください。</p>`;
       return;
@@ -361,29 +423,32 @@
         return;
       }
       const submitted = room.submissions?.[me.id];
+      const inputId = `${prefix}-hidden-word`;
+      const buttonId = `${prefix}-submit-word`;
       panel.innerHTML = `
         <h2>${room.week}週目: 伏せ入力</h2>
         <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
         ${submitted ? `<p class="success-text">送信済み: ${escapeHtml(submitted.word)}</p>` : `
           <label class="field-label">伏せワード
-            <input id="hidden-word" class="input" autocomplete="off" placeholder="お題に沿ったワード">
+            <input id="${inputId}" class="input" autocomplete="off" placeholder="お題に沿ったワード">
           </label>
-          <button id="submit-word" class="button primary full">伏せて送信</button>
+          <button id="${buttonId}" class="button primary full">伏せて送信</button>
         `}
       `;
-      if (!submitted) $("#submit-word").addEventListener("click", submitWord);
+      if (!submitted) panel.querySelector(`#${buttonId}`).addEventListener("click", () => submitWord(inputId));
       return;
     }
     if (room.phase === Core.PHASES.REVEAL) {
       const current = Core.currentRevealPlayer(room);
       if (current?.id === me.id) {
         const word = room.submissions?.[me.id]?.word || "";
+        const buttonId = `${prefix}-reveal-word`;
         panel.innerHTML = `
           <h2>あなたの開示順です</h2>
           <p class="muted">ボタンを押したら、公開されたワードを声に出して読んでください。</p>
-          <button id="reveal-word" class="button primary full">「${escapeHtml(word)}」を明らかにする</button>
+          <button id="${buttonId}" class="button primary full">「${escapeHtml(word)}」を明らかにする</button>
         `;
-        $("#reveal-word").addEventListener("click", () => mutate(state => Core.revealCurrentWord(state, me.id)));
+        panel.querySelector(`#${buttonId}`).addEventListener("click", () => mutate(state => Core.revealCurrentWord(state, me.id)));
       } else {
         panel.innerHTML = `<h2>順番開示</h2><p>現在の開示順: <strong>${escapeHtml(current?.name || "完了")}</strong></p>`;
       }
@@ -431,8 +496,8 @@
     });
   }
 
-  async function submitWord() {
-    const input = $("#hidden-word");
+  async function submitWord(inputId) {
+    const input = document.getElementById(inputId);
     const word = input.value.trim();
     await run(async () => {
       await Room.mutateRoom(roomCode, state => Core.submitHiddenWord(state, Room.userId, word));

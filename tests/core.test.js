@@ -33,6 +33,15 @@ function forceRoles(state, roles) {
 }
 
 {
+  const settings = Core.normalizeSettings({});
+  assert.equal(settings.hostParticipates, true);
+  assert.equal(settings.hostName, "マスター");
+  const disabled = Core.normalizeSettings({ hostParticipates: false, hostName: "進行役" });
+  assert.equal(disabled.hostParticipates, false);
+  assert.equal(disabled.hostName, "進行役");
+}
+
+{
   const state = roomWithPlayers(3);
   Core.addOrUpdatePlayer(state, "p3", "P1");
   const validation = Core.validateStart(state.settings, state.players);
