@@ -11,6 +11,7 @@
 
   const PHASES = {
     LOBBY: "lobby",
+    ROLE_CHECK: "roleCheck",
     INPUT: "input",
     REVEAL: "reveal",
     SUSPECT_TALK: "suspectTalk",
@@ -163,12 +164,12 @@
     if (players.length < 3) errors.push("3人以上の参加者が必要です。");
     if (new Set(names).size !== names.length) errors.push("同じ名前の参加者がいます。");
     if (settings.wolfCount >= players.length) errors.push("人狼人数は参加者数未満にしてください。");
-    if (settings.useSeer && players.length < 4) errors.push("占い師を入れる場合は4人以上必要です。");
-    if (settings.useSeer && players.length - settings.wolfCount < 2) errors.push("占い師を入れるには村人陣営の枠が足りません。");
+    const seerEligible = settings.useSeer && players.length >= 4;
+    if (seerEligible && players.length - settings.wolfCount < 2) errors.push("占い師を入れるには村人陣営の枠が足りません。");
     if (!settings.autoTopic) {
       if (!settings.topic) errors.push("お題を入力してください。");
       if (!settings.constraint) errors.push("人狼の制約を入力してください。");
-      if (settings.useSeer && !settings.hint) errors.push("占い師ヒントを入力してください。");
+      if (seerEligible && !settings.hint) errors.push("占い師ヒントを入力してください。");
     }
 
     return { ok: errors.length === 0, errors, settings, players };
@@ -185,6 +186,9 @@
       week: 0,
       inputEndsAt: null,
       discussionEndsAt: null,
+      roleReady: {},
+      seerId: "",
+      seerRevealed: false,
       submissions: {},
       revealOrder: [],
       revealIndex: 0,
@@ -235,15 +239,23 @@
 
     const roles = [];
     for (let index = 0; index < validation.settings.wolfCount; index++) roles.push(ROLES.WOLF);
-    if (validation.settings.useSeer) roles.push(ROLES.SEER);
     while (roles.length < validation.players.length) roles.push(ROLES.VILLAGER);
 
     shuffle(roles, random).forEach((role, index) => {
       state.players[validation.players[index].id].role = role;
       state.players[validation.players[index].id].suspect = false;
     });
+    state.seerId = "";
+    state.seerRevealed = false;
+    if (validation.settings.useSeer && validation.players.length >= 4) {
+      const candidates = validation.players.filter(player => state.players[player.id].role === ROLES.VILLAGER);
+      if (candidates.length) {
+        state.seerId = candidates[Math.floor(random() * candidates.length)].id;
+      }
+    }
     state.settings = validation.settings;
     state.week = 0;
+    state.roleReady = {};
     state.logs = [];
     state.voteHistory = [];
     state.winner = "";
@@ -251,8 +263,36 @@
     return state;
   }
 
+  function startRoleCheck(state, now = Date.now()) {
+    state.phase = PHASES.ROLE_CHECK;
+    state.roleReady = {};
+    state.submissions = {};
+    state.revealOrder = [];
+    state.revealIndex = 0;
+    state.votes = {};
+    state.inputEndsAt = null;
+    state.discussionEndsAt = null;
+    state.updatedAt = now;
+    return state;
+  }
+
+  function confirmRole(state, playerId, now = Date.now()) {
+    if (state.phase !== PHASES.ROLE_CHECK) throw new Error("役職確認の時間ではありません。");
+    if (!activeRoster(state.players).some(player => player.id === playerId)) throw new Error("参加者だけが確認できます。");
+    state.roleReady[playerId] = true;
+    state.updatedAt = now;
+    return state;
+  }
+
+  function allRolesConfirmed(state) {
+    const players = activeRoster(state.players);
+    return players.length > 0 && players.every(player => state.roleReady?.[player.id]);
+  }
+
   function startWeek(state, now = Date.now()) {
+    if (state.phase === PHASES.ROLE_CHECK && !allRolesConfirmed(state)) throw new Error("全員の役職確認が終わっていません。");
     state.week += 1;
+    revealSeerIfNeeded(state);
     state.phase = PHASES.INPUT;
     state.inputEndsAt = now + state.settings.inputSeconds * 1000;
     state.discussionEndsAt = null;
@@ -264,8 +304,19 @@
     return state;
   }
 
+  function revealSeerIfNeeded(state) {
+    if (!state.settings?.useSeer || !state.seerId || state.seerRevealed || state.week < 2) return state;
+    const player = state.players[state.seerId];
+    if (player && player.active !== false && player.role !== ROLES.WOLF) {
+      player.role = ROLES.SEER;
+      state.seerRevealed = true;
+    }
+    return state;
+  }
+
   function submitHiddenWord(state, playerId, word, now = Date.now()) {
     if (state.phase !== PHASES.INPUT) throw new Error("伏せ入力の時間ではありません。");
+    if (state.inputEndsAt && now > state.inputEndsAt) throw new Error("入力時間が終了しました。");
     const player = state.players[playerId];
     if (!player || player.suspect) throw new Error("容疑者は伏せ入力できません。");
     if (!livingPlayers(state).some(item => item.id === playerId)) throw new Error("生存者だけが伏せ入力できます。");
@@ -511,6 +562,9 @@
     suspectPlayers,
     usedWordsBeforeWeek,
     assignRoles,
+    startRoleCheck,
+    confirmRole,
+    allRolesConfirmed,
     startWeek,
     submitHiddenWord,
     allLivingSubmitted,

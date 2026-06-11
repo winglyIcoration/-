@@ -196,7 +196,7 @@
         </label>
       </div>
       <label class="check-row">
-        <span><strong>占い師を入れる</strong><small>ヒントは1〜3文字推奨です。</small></span>
+        <span><strong>占い師を入れる</strong><small>4人以上のとき、村人陣営から1人が2週目に占い師として明らかになります。</small></span>
         <input id="host-use-seer" type="checkbox" ${settings.useSeer ? "checked" : ""}>
       </label>
       <label class="check-row">
@@ -226,7 +226,7 @@
       ${settings.autoTopic ? `<div class="notice soft">お題・制約・ヒントはゲーム開始時に自動生成され、各参加者のカードにだけ表示されます。</div>` : ""}
       <div class="button-row">
         <button id="host-template" class="button secondary" ${settings.autoTopic ? "disabled" : ""}>手動候補</button>
-        <button id="host-start" class="button primary">ゲーム開始</button>
+        <button id="host-start" class="button primary">役職確認へ</button>
       </div>
     `;
     panel.querySelectorAll("input, select").forEach(input => input.addEventListener("input", collectHostDraft));
@@ -275,7 +275,7 @@
           delete state.players[state.hostId];
         }
         Core.assignRoles(state);
-        return Core.startWeek(state);
+        return Core.startRoleCheck(state);
       });
     });
   }
@@ -284,7 +284,7 @@
     const panel = $("#host-participant-panel");
     const card = $("#host-player-card");
     const me = room.players[Room.userId];
-    const playing = Boolean(me && me.active !== false && room.phase !== Core.PHASES.LOBBY);
+    const playing = Boolean(me && me.active !== false && ![Core.PHASES.LOBBY, Core.PHASES.RESULT].includes(room.phase));
     panel.classList.toggle("hidden", !playing);
     if (!playing) {
       card.classList.add("hidden");
@@ -302,14 +302,32 @@
       panel.innerHTML = `<h2>待機中</h2><p class="muted">参加者が部屋コードを入力して入室するのを待っています。</p>`;
       return;
     }
-    if (room.phase === Core.PHASES.INPUT) {
+    if (room.phase === Core.PHASES.ROLE_CHECK) {
+      const players = Core.activeRoster(room.players);
+      const confirmed = players.filter(player => room.roleReady?.[player.id]);
+      const allConfirmed = Core.allRolesConfirmed(room);
       panel.innerHTML = `
-        <h2>${room.week}週目: 伏せ入力</h2>
-        <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
-        <p class="muted">送信済み ${Object.keys(room.submissions || {}).length} / ${living.length}</p>
-        <button id="force-reveal" class="button primary full">開示フェーズへ</button>
+        <h2>役職確認</h2>
+        <p class="muted">確認済み ${confirmed.length} / ${players.length}</p>
+        ${allConfirmed
+          ? `<button id="begin-input" class="button primary full">ゲーム開始</button>`
+          : `<p class="muted">全員が自分のお題・役職を確認するまで待っています。</p>`}
       `;
-      $("#force-reveal").addEventListener("click", () => advanceToReveal(true));
+      if (allConfirmed) $("#begin-input").addEventListener("click", () => mutate(state => Core.startWeek(state)));
+      return;
+    }
+    if (room.phase === Core.PHASES.INPUT) {
+      const submitted = Object.keys(room.submissions || {}).length;
+      const missing = living.filter(player => !room.submissions?.[player.id]);
+      const timeOver = room.inputEndsAt && Date.now() > room.inputEndsAt;
+      panel.innerHTML = `
+        <h2>${room.week}週目: 入力状況</h2>
+        <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
+        <p class="muted">送信済み ${submitted} / ${living.length}</p>
+        ${missing.length
+          ? `<p class="muted">${timeOver ? "入力時間終了。未送信者はこの週で送信できません。" : "全員の送信完了で自動的に開示へ進みます。"}<br>未送信: ${missing.map(player => escapeHtml(player.name)).join(", ")}</p>`
+          : `<p class="success-text">全員送信済み。開示フェーズへ移動します。</p>`}
+      `;
       return;
     }
     if (room.phase === Core.PHASES.REVEAL) {
@@ -362,7 +380,14 @@
       $("#back-lobby").addEventListener("click", () => mutate(state => {
         state.phase = Core.PHASES.LOBBY;
         state.week = 0;
+        state.roleReady = {};
+        state.seerId = "";
+        state.seerRevealed = false;
+        state.inputEndsAt = null;
+        state.discussionEndsAt = null;
         state.submissions = {};
+        state.revealOrder = [];
+        state.revealIndex = 0;
         state.logs = [];
         state.votes = {};
         state.voteHistory = [];
@@ -401,6 +426,7 @@
       <p class="card-label">役職</p>
       <strong class="card-role ${roleClass(privateCard.role)}">${escapeHtml(privateCard.role)}</strong>
       <div class="card-info"><strong>${escapeHtml(privateCard.label)}</strong><br>${escapeHtml(privateCard.value)}</div>
+      ${privateCard.role === Core.ROLES.SEER ? `<p class="card-note">占い師であることを話せるのは投票会議からです。</p>` : ""}
     `;
   }
 
@@ -417,22 +443,40 @@
       panel.innerHTML = `<h2>待機中</h2><p class="muted">マスターがゲームを開始するまで待ってください。</p>`;
       return;
     }
+    if (room.phase === Core.PHASES.ROLE_CHECK) {
+      const card = Core.privateCard(room, me.id);
+      const confirmed = room.roleReady?.[me.id];
+      const buttonId = `${prefix}-confirm-role`;
+      panel.innerHTML = confirmed ? `
+        <h2>確認済み</h2>
+        <p class="muted">全員の確認完了と、マスターのゲーム開始を待っています。</p>
+      ` : `
+        <h2>役職確認</h2>
+        <p>あなたは「${escapeHtml(card.topic)} / ${escapeHtml(card.role)}」です。</p>
+        <p class="muted">上のお題・役職カードを確認してください。</p>
+        <button id="${buttonId}" class="button primary full">確認</button>
+      `;
+      if (!confirmed) panel.querySelector(`#${buttonId}`).addEventListener("click", () => mutate(state => Core.confirmRole(state, me.id)));
+      return;
+    }
     if (room.phase === Core.PHASES.INPUT) {
       if (me.suspect) {
         panel.innerHTML = `<h2>${room.week}週目: 伏せ入力</h2><p class="muted">あなたは容疑者です。伏せ入力はできません。</p>`;
         return;
       }
       const submitted = room.submissions?.[me.id];
+      const timeOver = room.inputEndsAt && Date.now() > room.inputEndsAt;
       const inputId = `${prefix}-hidden-word`;
       const buttonId = `${prefix}-submit-word`;
       panel.innerHTML = `
         <h2>${room.week}週目: 伏せ入力</h2>
         <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
-        ${submitted ? `<p class="success-text">送信済み: ${escapeHtml(submitted.word)}</p>` : `
+        ${submitted ? `<p class="success-text">送信済み: ${escapeHtml(submitted.word)}</p><p class="muted">全員の入力完了を待っています。</p>` : `
           <label class="field-label">伏せワード
-            <input id="${inputId}" class="input" autocomplete="off" placeholder="お題に沿ったワード">
+            <input id="${inputId}" class="input" autocomplete="off" placeholder="お題に沿ったワード" data-input-lock ${timeOver ? "disabled" : ""}>
           </label>
-          <button id="${buttonId}" class="button primary full">伏せて送信</button>
+          <button id="${buttonId}" class="button primary full" data-input-lock ${timeOver ? "disabled" : ""}>伏せて送信</button>
+          <p class="muted ${timeOver ? "" : "hidden"}" data-deadline-message>入力時間が終了しました。未送信のため、この週は送信できません。</p>
         `}
       `;
       if (!submitted) panel.querySelector(`#${buttonId}`).addEventListener("click", () => submitWord(inputId));
@@ -504,32 +548,17 @@
     });
   }
 
-  async function advanceToReveal(fillMissing) {
+  async function advanceToReveal() {
     await mutate(state => {
-      if (fillMissing) fillMissingWords(state);
       return Core.startReveal(state);
-    });
-  }
-
-  function fillMissingWords(state) {
-    Core.livingPlayers(state).forEach(player => {
-      if (!state.submissions[player.id]) {
-        state.submissions[player.id] = {
-          playerId: player.id,
-          word: "（未入力）",
-          normalized: `__missing_${state.week}_${player.id}`,
-          submittedAt: Date.now(),
-          revealed: false
-        };
-      }
     });
   }
 
   async function tick() {
     renderCountdowns();
     if (!room || mode !== "host" || busy) return;
-    if (room.phase === Core.PHASES.INPUT && (Date.now() >= room.inputEndsAt || Core.allLivingSubmitted(room))) {
-      await advanceToReveal(Date.now() >= room.inputEndsAt);
+    if (room.phase === Core.PHASES.INPUT && Core.allLivingSubmitted(room)) {
+      await advanceToReveal();
     }
     if ((room.phase === Core.PHASES.VOTE || room.phase === Core.PHASES.FINAL_VOTE) && Core.allVotesSubmitted(room)) {
       await mutate(state => Core.resolveVotes(state));
@@ -543,8 +572,16 @@
     document.querySelectorAll("[data-countdown]").forEach(el => {
       const end = Number(el.dataset.countdown);
       const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      const expired = left <= 0;
       el.textContent = `${left}秒`;
       el.classList.toggle("danger", left <= 5);
+      const panel = el.closest(".panel");
+      panel?.querySelectorAll("[data-input-lock]").forEach(control => {
+        control.disabled = expired;
+      });
+      panel?.querySelectorAll("[data-deadline-message]").forEach(message => {
+        message.classList.toggle("hidden", !expired);
+      });
     });
   }
 

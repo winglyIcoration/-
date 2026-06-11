@@ -434,6 +434,14 @@ button {
   line-height: 1.6;
 }
 
+.card-note {
+  margin: 12px 0 0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
 .role-wolf {
   color: var(--red);
 }

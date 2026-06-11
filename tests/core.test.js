@@ -33,6 +33,12 @@ function forceRoles(state, roles) {
 }
 
 {
+  const state = roomWithPlayers(3);
+  const validation = Core.validateStart({ ...state.settings, useSeer: true, hint: "" }, state.players);
+  assert.equal(validation.ok, true);
+}
+
+{
   const settings = Core.normalizeSettings({});
   assert.equal(settings.hostParticipates, true);
   assert.equal(settings.hostName, "マスター");
@@ -54,7 +60,29 @@ function forceRoles(state, roles) {
   Core.assignRoles(state, () => 0);
   const roles = Object.values(state.players).map(player => player.role);
   assert.equal(roles.filter(role => role === Core.ROLES.WOLF).length, 1);
-  assert.equal(roles.filter(role => role === Core.ROLES.SEER).length, 1);
+  assert.equal(roles.filter(role => role === Core.ROLES.SEER).length, 0);
+  assert.ok(state.seerId);
+  Core.startWeek(state, 1000);
+  assert.equal(state.week, 1);
+  assert.equal(Object.values(state.players).filter(player => player.role === Core.ROLES.SEER).length, 0);
+  Core.startWeek(state, 2000);
+  assert.equal(state.week, 2);
+  assert.equal(state.players[state.seerId].role, Core.ROLES.SEER);
+  assert.equal(state.seerRevealed, true);
+}
+
+{
+  const state = roomWithPlayers(4);
+  Core.assignRoles(state, () => 0);
+  Core.startRoleCheck(state, 1000);
+  assert.equal(state.phase, Core.PHASES.ROLE_CHECK);
+  assert.throws(() => Core.startWeek(state, 1001), /役職確認/);
+  Core.activeRoster(state.players).forEach((player, index) => {
+    Core.confirmRole(state, player.id, 1002 + index);
+  });
+  assert.equal(Core.allRolesConfirmed(state), true);
+  Core.startWeek(state, 1010);
+  assert.equal(state.phase, Core.PHASES.INPUT);
 }
 
 {
@@ -90,6 +118,13 @@ function forceRoles(state, roles) {
     constraint: "サバンナにいる",
     hint: "場所"
   });
+}
+
+{
+  const state = roomWithPlayers(3);
+  forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
+  Core.startWeek(state, 1000);
+  assert.throws(() => Core.submitHiddenWord(state, "p1", "ライオン", 40000), /入力時間/);
 }
 
 {
