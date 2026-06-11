@@ -16,6 +16,21 @@
 4. `firebase-config.example.js` を参考に、`firebase-config.js` の `window.CWW_FIREBASE_CONFIG = null;` をFirebase Web configへ置き換えます。
 5. Firestore Rulesには `firebase.rules` の内容を設定してください。
 
+Firestore Rulesに貼るのは、次のような `rules_version = '2';` から始まるコードだけです。
+Realtime Database用のJSON形式、たとえば `{ "rules": { ".read": true, ".write": true } }` は使いません。
+
+```js
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /artifacts/{appId}/public/rooms/{roomCode} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+```
+
 Firebase Web configはブラウザアプリ用の公開設定です。秘密鍵ではありません。
 
 ## ローカルテスト

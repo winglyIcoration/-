@@ -1,10 +1,9 @@
 window.CWW_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyCT0asCp7V4mGFM_g5LquczpaA8_FRr0Ok",
-  authDomain: "constrained-werewolf.firebaseapp.com",
-  projectId: "constrained-werewolf",
-  storageBucket: "constrained-werewolf.firebasestorage.app",
-  messagingSenderId: "391415171164",
-  appId: "1:391415171164:web:355887e5d41dd5a808be99",
-  measurementId: "G-360RXH0BW8"
+  apiKey: "AIzaSyDyOd1pvEYeKqzjInbXgDYAk-7Db89Buo8",
+  authDomain: "constrained-werewolf-5bdf6.firebaseapp.com",
+  projectId: "constrained-werewolf-5bdf6",
+  storageBucket: "constrained-werewolf-5bdf6.firebasestorage.app",
+  messagingSenderId: "501963975437",
+  appId: "1:501963975437:web:7dcfdb871f7a26c8861e44"
 };
 window.CWW_APP_ID = "constrained-word-wolf";
