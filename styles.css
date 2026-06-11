@@ -128,6 +128,13 @@ button {
   line-height: 1.6;
 }
 
+.notice.soft {
+  margin: 12px 0;
+  border-color: #1e3a8a;
+  background: #10224a;
+  color: #dbeafe;
+}
+
 .notice code {
   color: #fff7ed;
   font-weight: 900;

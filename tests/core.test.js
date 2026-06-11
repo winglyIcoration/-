@@ -49,6 +49,41 @@ function forceRoles(state, roles) {
 }
 
 {
+  const state = roomWithPlayers(4);
+  state.settings = Core.normalizeSettings({
+    wolfCount: 1,
+    useSeer: true,
+    autoTopic: true,
+    topic: "",
+    constraint: "",
+    hint: ""
+  });
+  const validation = Core.validateStart(state.settings, state.players);
+  assert.equal(validation.ok, true);
+  Core.assignRoles(state, () => 0);
+  assert.equal(state.settings.topic, "動物");
+  assert.equal(state.settings.constraint, "人間が手で抱えられる大きさのもの");
+  assert.equal(state.settings.hint, "大きさ");
+}
+
+{
+  const generated = Core.generateTopicSet(() => 0.99);
+  assert.ok(generated.topic);
+  assert.ok(generated.constraint);
+  assert.ok(generated.hint);
+  const cleaned = Core.sanitizeTopicSet({
+    topic: "お題：動物",
+    constraint: "制約: サバンナにいる",
+    hint: "ヒント：場所"
+  });
+  assert.deepEqual(cleaned, {
+    topic: "動物",
+    constraint: "サバンナにいる",
+    hint: "場所"
+  });
+}
+
+{
   const state = roomWithPlayers(3);
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
   Core.startWeek(state, 1000);

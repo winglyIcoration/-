@@ -174,21 +174,32 @@
         <span><strong>占い師を入れる</strong><small>ヒントは1〜3文字推奨です。</small></span>
         <input id="host-use-seer" type="checkbox" ${settings.useSeer ? "checked" : ""}>
       </label>
-      <label class="field-label">お題
-        <input id="host-topic" class="input" value="${escapeHtml(settings.topic)}">
+      <label class="check-row">
+        <span><strong>✨ お題を完全におまかせ</strong><small>通信なしのローカル生成。マスターにも結果まで非公開です。</small></span>
+        <input id="host-auto-topic" type="checkbox" ${settings.autoTopic ? "checked" : ""}>
       </label>
-      <label class="field-label">人狼の制約
-        <input id="host-constraint" class="input" value="${escapeHtml(settings.constraint)}">
-      </label>
-      <label class="field-label">占い師ヒント
-        <input id="host-hint" class="input" maxlength="8" value="${escapeHtml(settings.hint)}">
-      </label>
+      <div id="manual-topic-fields" class="${settings.autoTopic ? "hidden" : ""}">
+        <label class="field-label">お題
+          <input id="host-topic" class="input" value="${escapeHtml(settings.topic)}">
+        </label>
+        <label class="field-label">人狼の制約
+          <input id="host-constraint" class="input" value="${escapeHtml(settings.constraint)}">
+        </label>
+        <label class="field-label">占い師ヒント
+          <input id="host-hint" class="input" maxlength="8" value="${escapeHtml(settings.hint)}">
+        </label>
+      </div>
+      ${settings.autoTopic ? `<div class="notice soft">お題・制約・ヒントはゲーム開始時に自動生成され、各参加者のカードにだけ表示されます。</div>` : ""}
       <div class="button-row">
-        <button id="host-template" class="button secondary">おまかせ</button>
+        <button id="host-template" class="button secondary" ${settings.autoTopic ? "disabled" : ""}>手動候補</button>
         <button id="host-start" class="button primary">ゲーム開始</button>
       </div>
     `;
     panel.querySelectorAll("input, select").forEach(input => input.addEventListener("input", collectHostDraft));
+    $("#host-auto-topic").addEventListener("change", () => {
+      collectHostDraft();
+      renderHostSetup();
+    });
     $("#host-template").addEventListener("click", () => {
       const item = Core.TEMPLATES[Math.floor(Math.random() * Core.TEMPLATES.length)];
       hostDraftSettings = Core.normalizeSettings({ ...collectHostDraft(false), ...item });
@@ -204,6 +215,7 @@
       inputSeconds: Number($("#host-input-seconds")?.value || 30),
       discussionSeconds: Number($("#host-discussion-seconds")?.value || 0),
       useSeer: Boolean($("#host-use-seer")?.checked),
+      autoTopic: Boolean($("#host-auto-topic")?.checked),
       topic: $("#host-topic")?.value || "",
       constraint: $("#host-constraint")?.value || "",
       hint: $("#host-hint")?.value || ""
@@ -281,6 +293,11 @@
         <h2>結果</h2>
         <p class="${room.winner === "villager" ? "role-villager" : "role-wolf"}">${room.winner === "villager" ? "村人陣営の勝ち" : "人狼陣営の勝ち"}</p>
         <p>${escapeHtml(room.reason)}</p>
+        <div class="answer-list compact-list">
+          <div><dt>お題</dt><dd>${escapeHtml(room.settings.topic)}</dd></div>
+          <div><dt>制約</dt><dd>${escapeHtml(room.settings.constraint)}</dd></div>
+          ${room.settings.useSeer ? `<div><dt>ヒント</dt><dd>${escapeHtml(room.settings.hint)}</dd></div>` : ""}
+        </div>
         <button id="back-lobby" class="button primary full">同じ部屋で新規ゲーム</button>
       `;
       $("#back-lobby").addEventListener("click", () => mutate(state => {

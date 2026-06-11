@@ -31,6 +31,89 @@
     { topic: "飲み物", constraint: "温かくして飲める", hint: "温度" }
   ];
 
+  const TOPIC_BANK = [
+    {
+      topic: "動物",
+      constraints: [
+        { constraint: "人間が手で抱えられる大きさのもの", hint: "大きさ" },
+        { constraint: "野生のサバンナに生息しているもの", hint: "生息地" },
+        { constraint: "水辺や水中で暮らすことが多いもの", hint: "場所" },
+        { constraint: "空を飛ぶことができるもの", hint: "移動" },
+        { constraint: "日本の家庭でペットとして飼われることがあるもの", hint: "飼育" }
+      ]
+    },
+    {
+      topic: "食べ物",
+      constraints: [
+        { constraint: "コンビニや一般的なスーパーに売っていないもの", hint: "入手難度" },
+        { constraint: "手で持って食べやすいもの", hint: "食べ方" },
+        { constraint: "冷たい状態で食べることが多いもの", hint: "温度" },
+        { constraint: "赤い色の印象が強いもの", hint: "色" },
+        { constraint: "祝い事や特別な日に食べることが多いもの", hint: "場面" }
+      ]
+    },
+    {
+      topic: "キャラクター",
+      constraints: [
+        { constraint: "人間ではないキャラクター", hint: "種族" },
+        { constraint: "赤い要素が印象に残るキャラクター", hint: "色" },
+        { constraint: "空を飛ぶ、または浮くイメージがあるキャラクター", hint: "移動" },
+        { constraint: "道具や武器を持っている印象が強いキャラクター", hint: "持物" },
+        { constraint: "子ども向け作品で広く知られているキャラクター", hint: "対象" }
+      ]
+    },
+    {
+      topic: "場所",
+      constraints: [
+        { constraint: "入場料や利用料がかかることが多い場所", hint: "料金" },
+        { constraint: "屋外にあることが多い場所", hint: "屋外" },
+        { constraint: "静かにすることが求められやすい場所", hint: "雰囲気" },
+        { constraint: "旅行先として選ばれやすい場所", hint: "目的" },
+        { constraint: "水に関係する場所", hint: "水" }
+      ]
+    },
+    {
+      topic: "乗り物",
+      constraints: [
+        { constraint: "空を移動できるもの", hint: "場所" },
+        { constraint: "一人で乗ることが多いもの", hint: "人数" },
+        { constraint: "免許が必要になることが多いもの", hint: "資格" },
+        { constraint: "観光地で見かけやすいもの", hint: "用途" },
+        { constraint: "電気で動くイメージが強いもの", hint: "動力" }
+      ]
+    },
+    {
+      topic: "スマホアプリ",
+      constraints: [
+        { constraint: "写真や動画を扱うことが中心のもの", hint: "機能" },
+        { constraint: "位置情報を使うことが多いもの", hint: "位置" },
+        { constraint: "毎日開く人が多いもの", hint: "頻度" },
+        { constraint: "課金要素が目立つもの", hint: "料金" },
+        { constraint: "誰かと連絡を取るために使うもの", hint: "交流" }
+      ]
+    },
+    {
+      topic: "道具",
+      constraints: [
+        { constraint: "切るために使うもの", hint: "用途" },
+        { constraint: "学校や職場で使われやすいもの", hint: "場所" },
+        { constraint: "金属でできている印象が強いもの", hint: "素材" },
+        { constraint: "片手で持てるもの", hint: "大きさ" },
+        { constraint: "掃除に関係するもの", hint: "用途" }
+      ]
+    },
+    {
+      topic: "偉人",
+      constraints: [
+        { constraint: "政治や国の運営に関わった人物", hint: "分野" },
+        { constraint: "科学や発明で知られている人物", hint: "分野" },
+        { constraint: "日本で広く知られている人物", hint: "地域" },
+        { constraint: "紙幣や硬貨に関係する人物", hint: "お金" },
+        { constraint: "戦いや争いの時代と結びつきが強い人物", hint: "時代" }
+      ]
+    }
+  ];
+
   function defaultSettings() {
     return {
       wolfCount: 1,
@@ -38,6 +121,7 @@
       inputSeconds: 30,
       discussionSeconds: 0,
       maxWeeks: 3,
+      autoTopic: false,
       topic: "動物",
       constraint: "サバンナにいる",
       hint: "生息地"
@@ -59,6 +143,7 @@
     settings.inputSeconds = clamp(Number(settings.inputSeconds) || 30, 10, 180);
     settings.discussionSeconds = clamp(Number(settings.discussionSeconds) || 0, 0, 600);
     settings.maxWeeks = clamp(Number(settings.maxWeeks) || 3, 1, 10);
+    settings.autoTopic = Boolean(settings.autoTopic);
     settings.topic = String(settings.topic || "").trim();
     settings.constraint = String(settings.constraint || "").trim();
     settings.hint = String(settings.hint || "").trim();
@@ -76,9 +161,11 @@
     if (settings.wolfCount >= players.length) errors.push("人狼人数は参加者数未満にしてください。");
     if (settings.useSeer && players.length < 4) errors.push("占い師を入れる場合は4人以上必要です。");
     if (settings.useSeer && players.length - settings.wolfCount < 2) errors.push("占い師を入れるには村人陣営の枠が足りません。");
-    if (!settings.topic) errors.push("お題を入力してください。");
-    if (!settings.constraint) errors.push("人狼の制約を入力してください。");
-    if (settings.useSeer && !settings.hint) errors.push("占い師ヒントを入力してください。");
+    if (!settings.autoTopic) {
+      if (!settings.topic) errors.push("お題を入力してください。");
+      if (!settings.constraint) errors.push("人狼の制約を入力してください。");
+      if (settings.useSeer && !settings.hint) errors.push("占い師ヒントを入力してください。");
+    }
 
     return { ok: errors.length === 0, errors, settings, players };
   }
@@ -136,6 +223,9 @@
   }
 
   function assignRoles(state, random = Math.random) {
+    if (state.settings?.autoTopic) {
+      state.settings = normalizeSettings({ ...state.settings, ...generateTopicSet(random) });
+    }
     const validation = validateStart(state.settings, state.players);
     if (!validation.ok) throw new Error(validation.errors.join("\n"));
 
@@ -359,6 +449,32 @@
     return card;
   }
 
+  function generateTopicSet(random = Math.random) {
+    const topicItem = TOPIC_BANK[Math.floor(random() * TOPIC_BANK.length)];
+    const rule = topicItem.constraints[Math.floor(random() * topicItem.constraints.length)];
+    return sanitizeTopicSet({
+      topic: topicItem.topic,
+      constraint: rule.constraint,
+      hint: rule.hint
+    });
+  }
+
+  function sanitizeTopicSet(set) {
+    const topic = stripPrefix(set.topic);
+    const constraint = stripPrefix(set.constraint);
+    const hint = stripPrefix(set.hint);
+    if (!topic || !constraint || !hint) {
+      throw new Error("お題セットの生成に失敗しました。");
+    }
+    return { topic, constraint, hint };
+  }
+
+  function stripPrefix(value) {
+    return String(value || "")
+      .replace(/^(お題|おだい|テーマ|topic|カテゴリ|category|制約|せいやく|条件|制限|constraint|ヒント|ひんと|hint)[:：\s]+/i, "")
+      .trim();
+  }
+
   function clone(state) {
     return JSON.parse(JSON.stringify(state));
   }
@@ -379,6 +495,7 @@
     ROLES,
     PHASES,
     TEMPLATES,
+    TOPIC_BANK,
     defaultSettings,
     normalizeText,
     normalizeSettings,
@@ -405,6 +522,8 @@
     resolveVotes,
     shouldForceFinal,
     privateCard,
+    generateTopicSet,
+    sanitizeTopicSet,
     clone
   };
 });
