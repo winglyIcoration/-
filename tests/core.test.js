@@ -26,6 +26,11 @@ function forceRoles(state, roles) {
   });
 }
 
+function startInputWeek(state, now = 1000) {
+  Core.startWeek(state, now);
+  Core.startInput(state, now + state.settings.inputSeconds * 1000);
+}
+
 {
   const state = roomWithPlayers(4);
   const validation = Core.validateStart({ ...state.settings, useSeer: true }, state.players);
@@ -82,6 +87,8 @@ function forceRoles(state, roles) {
   });
   assert.equal(Core.allRolesConfirmed(state), true);
   Core.startWeek(state, 1010);
+  assert.equal(state.phase, Core.PHASES.THINK);
+  Core.startInput(state, 1040);
   assert.equal(state.phase, Core.PHASES.INPUT);
 }
 
@@ -108,6 +115,13 @@ function forceRoles(state, roles) {
   assert.ok(generated.topic);
   assert.ok(generated.constraint);
   assert.ok(generated.hint);
+  const levelThree = Core.generateTopicSet(() => 0, 3);
+  assert.equal(levelThree.topic, "ワンピースのキャラ");
+  const preferred = Core.generateTopicSet(() => 0, 2, "漫画");
+  assert.equal(preferred.topic, "漫画");
+  assert.ok(preferred.constraint);
+  const preferredKnown = Core.generateTopicSet(() => 0, 2, "偉人");
+  assert.equal(preferredKnown.constraint, "ノーベル賞を受賞している人物");
   const cleaned = Core.sanitizeTopicSet({
     topic: "お題：動物",
     constraint: "制約: サバンナにいる",
@@ -123,7 +137,7 @@ function forceRoles(state, roles) {
 {
   const state = roomWithPlayers(3);
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.startWeek(state, 1000);
+  startInputWeek(state, 1000);
   Core.submitHiddenWord(state, "p1", "ライオン", 40000);
   assert.equal(state.submissions.p1.word, "ライオン");
 }
@@ -131,7 +145,7 @@ function forceRoles(state, roles) {
 {
   const state = roomWithPlayers(3);
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.startWeek(state, 1000);
+  startInputWeek(state, 1000);
   Core.submitHiddenWord(state, "p1", "ライオン", 1001);
   Core.submitHiddenWord(state, "p2", "キリン", 1002);
   Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
@@ -147,7 +161,7 @@ function forceRoles(state, roles) {
   Core.resolveVotes(state, 1013);
   assert.equal(state.voteHistory[0].result, "スキップ");
   assert.equal(Core.activeRoster(state.players).some(player => player.suspect), false);
-  assert.equal(state.phase, Core.PHASES.INPUT);
+  assert.equal(state.phase, Core.PHASES.THINK);
   assert.equal(state.week, 2);
 }
 
@@ -162,7 +176,7 @@ function forceRoles(state, roles) {
 {
   const state = roomWithPlayers(3);
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.startWeek(state, 1000);
+  startInputWeek(state, 1000);
   Core.submitHiddenWord(state, "p1", "ライオン", 1001);
   Core.submitHiddenWord(state, "p2", " ライオン ", 1002);
   Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
@@ -184,7 +198,7 @@ function forceRoles(state, roles) {
 {
   const state = roomWithPlayers(3);
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.startWeek(state, 1000);
+  startInputWeek(state, 1000);
   Core.submitHiddenWord(state, "p1", "ライオン", 1001);
   Core.submitHiddenWord(state, "p2", "キリン", 1002);
   Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
@@ -206,7 +220,7 @@ function forceRoles(state, roles) {
 {
   const state = roomWithPlayers(4);
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.startWeek(state, 1000);
+  startInputWeek(state, 1000);
   Core.submitHiddenWord(state, "p1", "ライオン", 1001);
   Core.submitHiddenWord(state, "p2", "キリン", 1002);
   Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
@@ -223,7 +237,8 @@ function forceRoles(state, roles) {
   Core.castVote(state, "p3", "p2", 1014);
   Core.castVote(state, "p4", "p2", 1015);
   Core.resolveVotes(state, 1016);
-  assert.equal(state.phase, Core.PHASES.INPUT);
+  assert.equal(state.phase, Core.PHASES.THINK);
+  Core.startInput(state, 1017);
   assert.throws(() => Core.submitHiddenWord(state, "p1", "ライオン", 1017), /過去週/);
   Core.submitHiddenWord(state, "p1", "チーター", 1018);
 }

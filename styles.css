@@ -549,6 +549,16 @@ button {
   color: #93c5fd;
 }
 
+.log-row {
+  grid-template-columns: 96px 1fr;
+  align-items: start;
+}
+
+.log-row span {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

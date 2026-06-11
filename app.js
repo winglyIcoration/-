@@ -11,6 +11,7 @@
   let wakeLock = null;
   let wakeLockRequesting = false;
 
+  const SESSION_KEY = "cww.lastSession.v1";
   const $ = selector => document.querySelector(selector);
 
   document.addEventListener("DOMContentLoaded", init);
@@ -24,6 +25,7 @@
     const query = new URLSearchParams(location.search);
     const code = query.get("room");
     if (code) $("#join-code").value = code.toUpperCase();
+    renderSavedSession();
   }
 
   function waitForRoomApi() {
@@ -36,6 +38,8 @@
   function bindStaticEvents() {
     $("#create-room-button").addEventListener("click", createHostRoom);
     $("#join-room-button").addEventListener("click", joinRoom);
+    $("#resume-room-button").addEventListener("click", resumeSavedSession);
+    $("#forget-room-button").addEventListener("click", forgetSavedSession);
     document.body.addEventListener("click", event => {
       const action = event.target.closest("[data-action]")?.dataset.action;
       if (action === "leave") leaveRoom();
@@ -66,6 +70,55 @@
     }
   }
 
+  function readSavedSession() {
+    try {
+      const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      if (!session || !/^[A-Z0-9]{4}$/.test(session.roomCode || "")) return null;
+      return session;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveSession(session) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      mode: session.mode,
+      roomCode: session.roomCode,
+      name: session.name || "",
+      savedAt: Date.now()
+    }));
+    renderSavedSession();
+  }
+
+  function clearSavedSession() {
+    localStorage.removeItem(SESSION_KEY);
+    renderSavedSession();
+  }
+
+  function forgetSavedSession() {
+    clearSavedSession();
+    $("#join-code").value = "";
+    showToast("保存した部屋情報を削除しました。");
+  }
+
+  function renderSavedSession() {
+    const panel = $("#resume-panel");
+    if (!panel) return;
+    const session = readSavedSession();
+    panel.classList.toggle("hidden", !session);
+    if (!session) return;
+    const modeLabel = session.mode === "host" ? "マスター" : "参加者";
+    $("#resume-room-summary").textContent = `${session.roomCode} / ${modeLabel}${session.name ? ` / ${session.name}` : ""}`;
+    if (!mode && !$("#join-code").value) $("#join-code").value = session.roomCode;
+    if (!mode && session.name && !$("#join-name").value) $("#join-name").value = session.name;
+  }
+
+  async function resumeSavedSession() {
+    const session = readSavedSession();
+    if (!session) return showToast("保存された部屋情報がありません。");
+    await enterRoomByCode(session.roomCode, session.name || "", true);
+  }
+
   async function createHostRoom() {
     await run(async () => {
       await Room.ready();
@@ -73,12 +126,8 @@
       const code = await generateRoomCode();
       const initial = Core.createRoom(code, hostId);
       await Room.createRoom(initial);
-      mode = "host";
-      roomCode = code;
-      subscribe(code);
-      history.replaceState(null, "", `?room=${code}`);
-      showScreen("screen-host");
-      updateWakeLock();
+      saveSession({ mode: "host", roomCode: code, name: "マスター" });
+      enterHostScreen(code);
     });
   }
 
@@ -96,12 +145,29 @@
     const code = $("#join-code").value.trim().toUpperCase();
     const name = $("#join-name").value.trim();
     if (!/^[A-Z0-9]{4}$/.test(code)) return showToast("4文字の部屋コードを入力してください。");
-    if (!name) return showToast("名前を入力してください。");
+    await enterRoomByCode(code, name, false);
+  }
 
+  async function enterRoomByCode(code, name, fromCache) {
     await run(async () => {
       await Room.ready();
       const exists = await Room.getRoom(code);
       if (!exists) throw new Error("部屋が見つかりません。コードを確認してください。");
+
+      if (exists.hostId === Room.userId) {
+        saveSession({ mode: "host", roomCode: code, name: "マスター" });
+        enterHostScreen(code);
+        return;
+      }
+
+      const existingSelf = exists.players?.[Room.userId];
+      if (existingSelf && existingSelf.active !== false) {
+        saveSession({ mode: "player", roomCode: code, name: existingSelf.name || name });
+        enterPlayerScreen(code);
+        return;
+      }
+
+      if (!name) throw new Error(fromCache ? "保存された名前がありません。名前を入力して参加してください。" : "名前を入力してください。");
       await Room.mutateRoom(code, state => {
         if (state.phase !== Core.PHASES.LOBBY) throw new Error("この部屋はすでに開始しています。");
         const duplicate = Core.activeRoster(state.players).some(player => {
@@ -110,13 +176,27 @@
         if (duplicate) throw new Error("同じ名前の参加者がいます。別名にしてください。");
         return Core.addOrUpdatePlayer(state, Room.userId, name);
       });
-      mode = "player";
-      roomCode = code;
-      subscribe(code);
-      history.replaceState(null, "", `?room=${code}`);
-      showScreen("screen-player");
-      updateWakeLock();
+      saveSession({ mode: "player", roomCode: code, name });
+      enterPlayerScreen(code);
     });
+  }
+
+  function enterHostScreen(code) {
+    mode = "host";
+    roomCode = code;
+    subscribe(code);
+    history.replaceState(null, "", `?room=${code}`);
+    showScreen("screen-host");
+    updateWakeLock();
+  }
+
+  function enterPlayerScreen(code) {
+    mode = "player";
+    roomCode = code;
+    subscribe(code);
+    history.replaceState(null, "", `?room=${code}`);
+    showScreen("screen-player");
+    updateWakeLock();
   }
 
   function subscribe(code) {
@@ -124,6 +204,7 @@
     unsubscribe = Room.subscribe(code, next => {
       if (!next) {
         showToast("部屋が見つからなくなりました。");
+        clearSavedSession();
         leaveRoom(false);
         return;
       }
@@ -147,6 +228,7 @@
     releaseWakeLock();
     if (clearUrl) history.replaceState(null, "", location.pathname);
     showScreen("screen-home");
+    renderSavedSession();
   }
 
   async function recoverRoomConnection() {
@@ -157,6 +239,7 @@
       const latest = await Room.getRoom(roomCode);
       if (!latest) {
         showToast("部屋が見つからなくなりました。");
+        clearSavedSession();
         leaveRoom(false);
         return;
       }
@@ -269,7 +352,7 @@
         <label class="field-label">最大週数
           <input id="host-max-weeks" class="input" type="number" min="1" max="10" value="${settings.maxWeeks}">
         </label>
-        <label class="field-label">伏せ入力秒数
+        <label class="field-label">思考秒数
           <input id="host-input-seconds" class="input" type="number" min="10" max="180" value="${settings.inputSeconds}">
         </label>
         <label class="field-label">話し合い秒数
@@ -292,9 +375,21 @@
         </label>
       </div>
       <label class="check-row">
-        <span><strong>お任せ(AI生成)</strong><small>通信なしのローカル生成。設定画面には結果まで非公開です。</small></span>
+        <span><strong>お任せ(ローカル生成)</strong><small>お題だけ指定できます。空ならレベルに応じて生成します。</small></span>
         <input id="host-auto-topic" type="checkbox" ${settings.autoTopic ? "checked" : ""}>
       </label>
+      <div id="auto-topic-fields" class="${settings.autoTopic ? "" : "hidden"}">
+        <label class="field-label">生成レベル
+          <select id="host-topic-level" class="input">
+            <option value="1" ${settings.topicLevel === 1 ? "selected" : ""}>レベル1: 普通</option>
+            <option value="2" ${settings.topicLevel === 2 ? "selected" : ""}>レベル2: ちょい知識</option>
+            <option value="3" ${settings.topicLevel === 3 ? "selected" : ""}>レベル3: マニアック</option>
+          </select>
+        </label>
+        <label class="field-label">お題指定（任意）
+          <input id="host-topic-auto" class="input" value="${escapeHtml(settings.topic)}" placeholder="空ならお題も生成">
+        </label>
+      </div>
       <div id="manual-topic-fields" class="${settings.autoTopic ? "hidden" : ""}">
         <label class="field-label">お題
           <input id="host-topic" class="input" value="${escapeHtml(settings.topic)}">
@@ -306,7 +401,7 @@
           <input id="host-hint" class="input" maxlength="8" value="${escapeHtml(settings.hint)}">
         </label>
       </div>
-      ${settings.autoTopic ? `<div class="notice soft">お題・制約・ヒントはゲーム開始時に自動生成され、各参加者のカードにだけ表示されます。</div>` : ""}
+      ${settings.autoTopic ? `<div class="notice soft">制約・ヒントはゲーム開始時にローカル生成され、各参加者のカードにだけ表示されます。</div>` : ""}
       <div class="button-row">
         <button id="host-template" class="button secondary" ${settings.autoTopic ? "disabled" : ""}>手動候補</button>
         <button id="host-start" class="button primary">役職確認へ</button>
@@ -318,7 +413,11 @@
       renderHostSetup();
     });
     $("#host-auto-topic").addEventListener("change", () => {
-      collectHostDraft();
+      const next = collectHostDraft();
+      if ($("#host-auto-topic").checked) {
+        next.topic = "";
+        hostDraftSettings = next;
+      }
       renderHostSetup();
     });
     $("#host-template").addEventListener("click", () => {
@@ -339,7 +438,8 @@
       hostParticipates: Boolean($("#host-participates")?.checked),
       hostName: $("#host-name")?.value || "マスター",
       autoTopic: Boolean($("#host-auto-topic")?.checked),
-      topic: $("#host-topic")?.value || "",
+      topicLevel: Number($("#host-topic-level")?.value || 1),
+      topic: $("#host-auto-topic")?.checked ? ($("#host-topic-auto")?.value || "") : ($("#host-topic")?.value || ""),
       constraint: $("#host-constraint")?.value || "",
       hint: $("#host-hint")?.value || ""
     });
@@ -399,20 +499,26 @@
       if (allConfirmed) $("#begin-input").addEventListener("click", () => mutate(state => Core.startWeek(state)));
       return;
     }
+    if (room.phase === Core.PHASES.THINK) {
+      panel.innerHTML = `
+        <h2>${room.week}週目: 思考時間</h2>
+        <div class="countdown" data-countdown="${room.thinkEndsAt}"></div>
+        <p class="muted">この時間はお題と役職を見ながら、伏せるワードを考える時間です。終了後に入力画面へ進みます。</p>
+      `;
+      return;
+    }
     if (room.phase === Core.PHASES.INPUT) {
       const submitted = Object.keys(room.submissions || {}).length;
       const missing = living.filter(player => !room.submissions?.[player.id]);
-      const timeOver = room.inputEndsAt && Date.now() > room.inputEndsAt;
       panel.innerHTML = `
         <h2>${room.week}週目: 入力状況</h2>
-        <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
         <p class="muted">送信済み ${submitted} / ${living.length}</p>
         ${missing.length
-          ? `<p class="muted">${timeOver ? "30秒を経過しました。未送信者はまだ入力できます。" : "全員の送信完了で自動的に開示へ進みます。"}<br>未送信: ${missing.map(player => escapeHtml(player.name)).join(", ")}</p>
-            ${timeOver ? `<button id="force-reveal" class="button warn full">強制的に開示フェーズへ</button>` : ""}`
+          ? `<p class="muted">全員の送信完了で自動的に開示へ進みます。<br>未送信: ${missing.map(player => escapeHtml(player.name)).join(", ")}</p>
+            <button id="force-reveal" class="button warn full">強制的に開示フェーズへ</button>`
           : `<p class="success-text">全員送信済み。開示フェーズへ移動します。</p>`}
       `;
-      if (timeOver && missing.length) $("#force-reveal").addEventListener("click", () => advanceToReveal(true));
+      if (missing.length) $("#force-reveal").addEventListener("click", () => advanceToReveal(true));
       return;
     }
     if (room.phase === Core.PHASES.REVEAL) {
@@ -468,6 +574,7 @@
         state.roleReady = {};
         state.seerId = "";
         state.seerRevealed = false;
+        state.thinkEndsAt = null;
         state.inputEndsAt = null;
         state.discussionEndsAt = null;
         state.submissions = {};
@@ -478,6 +585,11 @@
         state.voteHistory = [];
         state.winner = "";
         state.reason = "";
+        if (state.settings?.autoTopic) {
+          state.settings.topic = "";
+          state.settings.constraint = "";
+          state.settings.hint = "";
+        }
         Object.values(state.players).forEach(player => {
           player.role = "";
           player.suspect = false;
@@ -544,24 +656,29 @@
       if (!confirmed) panel.querySelector(`#${buttonId}`).addEventListener("click", () => mutate(state => Core.confirmRole(state, me.id)));
       return;
     }
+    if (room.phase === Core.PHASES.THINK) {
+      panel.innerHTML = `
+        <h2>${room.week}週目: 思考時間</h2>
+        <div class="countdown" data-countdown="${room.thinkEndsAt}"></div>
+        <p class="muted">お題と役職を見ながら、入力するワードを考えてください。タイマー終了後に入力できます。</p>
+      `;
+      return;
+    }
     if (room.phase === Core.PHASES.INPUT) {
       if (me.suspect) {
         panel.innerHTML = `<h2>${room.week}週目: 伏せ入力</h2><p class="muted">あなたは容疑者です。伏せ入力はできません。</p>`;
         return;
       }
       const submitted = room.submissions?.[me.id];
-      const timeOver = room.inputEndsAt && Date.now() > room.inputEndsAt;
       const inputId = `${prefix}-hidden-word`;
       const buttonId = `${prefix}-submit-word`;
       panel.innerHTML = `
         <h2>${room.week}週目: 伏せ入力</h2>
-        <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
         ${submitted ? `<p class="success-text">送信済み: ${escapeHtml(submitted.word)}</p><p class="muted">全員の入力完了、またはマスターの進行を待っています。</p>` : `
           <label class="field-label">伏せワード
             <input id="${inputId}" class="input" autocomplete="off" placeholder="お題に沿ったワード">
           </label>
           <button id="${buttonId}" class="button primary full">伏せて送信</button>
-          <p class="muted ${timeOver ? "" : "hidden"}" data-warning-message>30秒を過ぎました。まだ入力できますが、マスターが強制進行できます。</p>
         `}
       `;
       if (!submitted) panel.querySelector(`#${buttonId}`).addEventListener("click", () => submitWord(inputId));
@@ -639,6 +756,7 @@
 
   async function advanceToReveal(fillMissing = false) {
     await mutate(state => {
+      if (state.phase !== Core.PHASES.INPUT) return state;
       if (fillMissing) fillMissingWords(state);
       return Core.startReveal(state);
     });
@@ -660,10 +778,16 @@
 
   async function tick() {
     renderCountdowns();
-    if (!room || mode !== "host" || busy) return;
+    if (!room || busy) return;
+    if (room.phase === Core.PHASES.THINK && Date.now() >= room.thinkEndsAt) {
+      await mutate(state => state.phase === Core.PHASES.THINK ? Core.startInput(state) : state);
+      return;
+    }
     if (room.phase === Core.PHASES.INPUT && Core.allLivingSubmitted(room)) {
       await advanceToReveal();
+      return;
     }
+    if (mode !== "host") return;
     if ((room.phase === Core.PHASES.VOTE || room.phase === Core.PHASES.FINAL_VOTE) && Core.allVotesSubmitted(room)) {
       await mutate(state => Core.resolveVotes(state));
     }
@@ -714,12 +838,30 @@
 
   function renderLogs(selector) {
     const logs = room.logs || [];
-    $(selector).innerHTML = logs.length ? logs.map(log => `
-      <div class="log-item">
-        <strong>${log.week}週目 / ${escapeHtml(log.playerName)}</strong>
-        <span>${escapeHtml(log.word)}</span>
+    if (!logs.length) {
+      $(selector).innerHTML = `<div class="result-item">公開ログはまだありません。</div>`;
+      return;
+    }
+    const grouped = new Map();
+    logs.forEach(log => {
+      const key = log.playerId || log.playerName;
+      if (!grouped.has(key)) grouped.set(key, { name: log.playerName || "不明", words: [] });
+      grouped.get(key).words.push(log.word);
+    });
+    const ordered = [
+      ...Core.activeRoster(room.players)
+        .filter(player => grouped.has(player.id))
+        .map(player => grouped.get(player.id)),
+      ...[...grouped.entries()]
+        .filter(([playerId]) => !room.players?.[playerId])
+        .map(([, row]) => row)
+    ];
+    $(selector).innerHTML = ordered.map(row => `
+      <div class="log-item log-row">
+        <strong>${escapeHtml(row.name)}</strong>
+        <span>${row.words.map(word => escapeHtml(word)).join("／")}</span>
       </div>
-    `).join("") : `<div class="result-item">公開ログはまだありません。</div>`;
+    `).join("");
   }
 
   function renderResult() {

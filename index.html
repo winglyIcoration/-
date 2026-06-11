@@ -18,7 +18,7 @@
       <div class="hero">
         <div class="eyebrow-row">
           <p class="eyebrow">Master + Room Code</p>
-          <span class="version-label">バージョン 1.0.0</span>
+          <span class="version-label">バージョン 1.1.0</span>
         </div>
         <h1>制約ワードウルフ</h1>
         <p>マスター端末で部屋を作り、参加者は自分のスマホから部屋コードを入力して参加します。</p>
@@ -28,6 +28,15 @@
 
       <div class="panel stack">
         <button id="create-room-button" class="button primary full">マスターとして部屋を作る</button>
+      </div>
+
+      <div id="resume-panel" class="panel stack hidden">
+        <h2>前回の部屋</h2>
+        <p id="resume-room-summary" class="muted"></p>
+        <div class="button-row">
+          <button id="resume-room-button" class="button primary">再入室</button>
+          <button id="forget-room-button" class="button secondary">削除</button>
+        </div>
       </div>
 
       <div class="panel stack">
@@ -46,7 +55,7 @@
       <div class="rule-card">
         <h2>新ルール</h2>
         <ul>
-          <li>各週の開始時、生存者は30秒を目安に伏せワードを入力します。</li>
+          <li>各週の開始時、生存者は30秒の思考時間の後、伏せワードを入力します。</li>
           <li>同じ週内の偶然の被りはセーフです。公開済みワードは次週以降禁止です。</li>
           <li>容疑者はログ入力できませんが、生存者の開示後に声だけで介入できます。</li>
           <li>1週目の通常投票だけ「投票しない」を選べます。</li>

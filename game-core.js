@@ -12,6 +12,7 @@
   const PHASES = {
     LOBBY: "lobby",
     ROLE_CHECK: "roleCheck",
+    THINK: "think",
     INPUT: "input",
     REVEAL: "reveal",
     SUSPECT_TALK: "suspectTalk",
@@ -114,8 +115,142 @@
         { constraint: "紙幣や硬貨に関係する人物", hint: "お金" },
         { constraint: "戦いや争いの時代と結びつきが強い人物", hint: "時代" }
       ]
+    },
+    {
+      level: 2,
+      topic: "偉人",
+      constraints: [
+        { constraint: "ノーベル賞を受賞している人物", hint: "受賞" },
+        { constraint: "本名より通称や芸名で知られている人物", hint: "名前" },
+        { constraint: "20世紀以降に活躍した人物", hint: "時代" },
+        { constraint: "発明や発見に関係する人物", hint: "分野" },
+        { constraint: "複数の国や地域に影響を与えた人物", hint: "影響" }
+      ]
+    },
+    {
+      level: 2,
+      topic: "国",
+      constraints: [
+        { constraint: "島国である", hint: "地形" },
+        { constraint: "公用語が英語ではない", hint: "言語" },
+        { constraint: "国旗に赤色が入っている", hint: "国旗" },
+        { constraint: "サッカーが強い印象のある国", hint: "スポーツ" },
+        { constraint: "日本から直行便で行きやすい国", hint: "距離" }
+      ]
+    },
+    {
+      level: 2,
+      topic: "世界遺産",
+      constraints: [
+        { constraint: "自然遺産として知られているもの", hint: "分類" },
+        { constraint: "ヨーロッパにあるもの", hint: "地域" },
+        { constraint: "水に関係するもの", hint: "水" },
+        { constraint: "宗教施設や信仰に関係するもの", hint: "信仰" },
+        { constraint: "日本にあるもの", hint: "地域" }
+      ]
+    },
+    {
+      level: 2,
+      topic: "映画",
+      constraints: [
+        { constraint: "実写ではなくアニメ作品である", hint: "表現" },
+        { constraint: "宇宙や未来が重要な要素である", hint: "舞台" },
+        { constraint: "シリーズ作品として続編がある", hint: "続編" },
+        { constraint: "日本でも広く知られている洋画", hint: "地域" },
+        { constraint: "家族や子どもも見やすい作品", hint: "対象" }
+      ]
+    },
+    {
+      level: 2,
+      topic: "ゲーム",
+      constraints: [
+        { constraint: "任天堂のハードで遊べる印象が強いもの", hint: "機種" },
+        { constraint: "対戦要素があるもの", hint: "遊び方" },
+        { constraint: "冒険や探索が中心のもの", hint: "目的" },
+        { constraint: "スマホでも遊べるもの", hint: "機種" },
+        { constraint: "キャラクター育成が重要なもの", hint: "育成" }
+      ]
+    },
+    {
+      level: 3,
+      topic: "ワンピースのキャラ",
+      constraints: [
+        { constraint: "海賊ではないキャラクター", hint: "所属" },
+        { constraint: "悪魔の実の能力者である", hint: "能力" },
+        { constraint: "麦わらの一味ではない", hint: "所属" },
+        { constraint: "海軍や世界政府に関係する", hint: "所属" },
+        { constraint: "初登場が新世界編より前のキャラクター", hint: "時期" }
+      ]
+    },
+    {
+      level: 3,
+      topic: "ポケモン",
+      constraints: [
+        { constraint: "初代に登場するポケモン", hint: "世代" },
+        { constraint: "進化するポケモン", hint: "進化" },
+        { constraint: "伝説・幻ではないポケモン", hint: "分類" },
+        { constraint: "水タイプを持つポケモン", hint: "タイプ" },
+        { constraint: "人型ではない印象が強いポケモン", hint: "形" }
+      ]
+    },
+    {
+      level: 3,
+      topic: "ジョジョのスタンド",
+      constraints: [
+        { constraint: "近距離パワー型の印象が強いスタンド", hint: "型" },
+        { constraint: "時間や空間に関係する能力を持つスタンド", hint: "能力" },
+        { constraint: "名前が音楽由来のスタンド", hint: "由来" },
+        { constraint: "主人公側が使うスタンド", hint: "陣営" },
+        { constraint: "人型のビジュアルが印象的なスタンド", hint: "形" }
+      ]
+    },
+    {
+      level: 3,
+      topic: "ガンダムの機体",
+      constraints: [
+        { constraint: "主人公が搭乗する機体", hint: "搭乗者" },
+        { constraint: "量産機として知られている機体", hint: "分類" },
+        { constraint: "赤い印象が強い機体", hint: "色" },
+        { constraint: "宇宙世紀作品に登場する機体", hint: "作品群" },
+        { constraint: "変形や合体の印象がある機体", hint: "機構" }
+      ]
+    },
+    {
+      level: 3,
+      topic: "日本の戦国武将",
+      constraints: [
+        { constraint: "天下統一に強く関係する人物", hint: "目的" },
+        { constraint: "関ヶ原の戦いに関係する人物", hint: "戦い" },
+        { constraint: "東北地方に関係が深い人物", hint: "地域" },
+        { constraint: "女性ではない人物", hint: "性別" },
+        { constraint: "城と結びつきが強い人物", hint: "拠点" }
+      ]
     }
   ];
+
+  const GENERIC_CONSTRAINTS = {
+    1: [
+      { constraint: "赤い要素があるもの", hint: "色" },
+      { constraint: "手で持てるもの", hint: "大きさ" },
+      { constraint: "家の中で見かけやすいもの", hint: "場所" },
+      { constraint: "子どもにも知られているもの", hint: "認知度" },
+      { constraint: "値段が高すぎないもの", hint: "価格" }
+    ],
+    2: [
+      { constraint: "20世紀以降と関係が深いもの", hint: "時代" },
+      { constraint: "日本国外との関係が強いもの", hint: "地域" },
+      { constraint: "賞やランキングに関係しやすいもの", hint: "評価" },
+      { constraint: "専門用語で語られやすいもの", hint: "知識" },
+      { constraint: "学校で習う可能性があるもの", hint: "学習" }
+    ],
+    3: [
+      { constraint: "主人公側ではないもの", hint: "立場" },
+      { constraint: "初期から登場しているもの", hint: "時期" },
+      { constraint: "特定の組織や勢力に属するもの", hint: "所属" },
+      { constraint: "能力や特殊設定が重要なもの", hint: "能力" },
+      { constraint: "名前や由来に元ネタがあるもの", hint: "由来" }
+    ]
+  };
 
   function defaultSettings() {
     return {
@@ -124,6 +259,7 @@
       inputSeconds: 30,
       discussionSeconds: 0,
       maxWeeks: 3,
+      topicLevel: 1,
       hostParticipates: true,
       hostName: "マスター",
       autoTopic: false,
@@ -148,6 +284,7 @@
     settings.inputSeconds = clamp(Number(settings.inputSeconds) || 30, 10, 180);
     settings.discussionSeconds = clamp(Number(settings.discussionSeconds) || 0, 0, 600);
     settings.maxWeeks = clamp(Number(settings.maxWeeks) || 3, 1, 10);
+    settings.topicLevel = clamp(Number(settings.topicLevel) || 1, 1, 3);
     settings.hostParticipates = input?.hostParticipates !== false;
     settings.hostName = String(settings.hostName || "マスター").trim() || "マスター";
     settings.autoTopic = Boolean(settings.autoTopic);
@@ -179,13 +316,14 @@
 
   function createRoom(roomCode, hostId) {
     return {
-      version: 4,
+      version: 5,
       roomCode,
       hostId,
       phase: PHASES.LOBBY,
       settings: defaultSettings(),
       players: {},
       week: 0,
+      thinkEndsAt: null,
       inputEndsAt: null,
       discussionEndsAt: null,
       roleReady: {},
@@ -234,7 +372,7 @@
 
   function assignRoles(state, random = Math.random) {
     if (state.settings?.autoTopic) {
-      state.settings = normalizeSettings({ ...state.settings, ...generateTopicSet(random) });
+      state.settings = normalizeSettings({ ...state.settings, ...generateTopicSet(random, state.settings.topicLevel, state.settings.topic) });
     }
     const validation = validateStart(state.settings, state.players);
     if (!validation.ok) throw new Error(validation.errors.join("\n"));
@@ -272,6 +410,7 @@
     state.revealOrder = [];
     state.revealIndex = 0;
     state.votes = {};
+    state.thinkEndsAt = null;
     state.inputEndsAt = null;
     state.discussionEndsAt = null;
     state.updatedAt = now;
@@ -295,13 +434,22 @@
     if (state.phase === PHASES.ROLE_CHECK && !allRolesConfirmed(state)) throw new Error("全員の役職確認が終わっていません。");
     state.week += 1;
     revealSeerIfNeeded(state);
-    state.phase = PHASES.INPUT;
-    state.inputEndsAt = now + state.settings.inputSeconds * 1000;
+    state.phase = PHASES.THINK;
+    state.thinkEndsAt = now + state.settings.inputSeconds * 1000;
+    state.inputEndsAt = null;
     state.discussionEndsAt = null;
     state.submissions = {};
     state.revealOrder = livingPlayers(state).map(player => player.id);
     state.revealIndex = 0;
     state.votes = {};
+    state.updatedAt = now;
+    return state;
+  }
+
+  function startInput(state, now = Date.now()) {
+    if (state.phase !== PHASES.THINK) throw new Error("思考時間の後だけ伏せ入力へ進めます。");
+    state.phase = PHASES.INPUT;
+    state.inputEndsAt = null;
     state.updatedAt = now;
     return state;
   }
@@ -516,8 +664,28 @@
     return card;
   }
 
-  function generateTopicSet(random = Math.random) {
-    const topicItem = TOPIC_BANK[Math.floor(random() * TOPIC_BANK.length)];
+  function generateTopicSet(random = Math.random, level = 1, preferredTopic = "") {
+    const targetLevel = clamp(Number(level) || 1, 1, 3);
+    const preferred = String(preferredTopic || "").trim();
+    const preferredKey = normalizeText(preferred);
+    let bank = TOPIC_BANK.filter(item => (item.level || 1) === targetLevel);
+
+    if (preferredKey) {
+      const exact = TOPIC_BANK.filter(item => normalizeText(item.topic) === preferredKey && (item.level || 1) === targetLevel);
+      const fallbackExact = TOPIC_BANK.filter(item => normalizeText(item.topic) === preferredKey);
+      if (exact.length) {
+        bank = exact;
+      } else if (fallbackExact.length) {
+        bank = fallbackExact;
+      } else {
+        const generic = GENERIC_CONSTRAINTS[targetLevel] || GENERIC_CONSTRAINTS[1];
+        const rule = generic[Math.floor(random() * generic.length)];
+        return sanitizeTopicSet({ topic: preferred, constraint: rule.constraint, hint: rule.hint });
+      }
+    }
+
+    if (!bank.length) bank = TOPIC_BANK;
+    const topicItem = bank[Math.floor(random() * bank.length)];
     const rule = topicItem.constraints[Math.floor(random() * topicItem.constraints.length)];
     return sanitizeTopicSet({
       topic: topicItem.topic,
@@ -579,6 +747,7 @@
     confirmRole,
     allRolesConfirmed,
     startWeek,
+    startInput,
     submitHiddenWord,
     allLivingSubmitted,
     startReveal,
