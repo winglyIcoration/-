@@ -531,10 +531,14 @@
       return;
     }
     const candidates = Core.voteCandidates(room).filter(player => room.phase === Core.PHASES.FINAL_VOTE || player.id !== me.id);
+    const skipButton = Core.canSkipVote(room)
+      ? `<button class="vote-option skip" data-target="${Core.SKIP_VOTE}">投票しない（スキップ）</button>`
+      : "";
     panel.innerHTML = `
       <h2>${room.phase === Core.PHASES.FINAL_VOTE ? "最終解決" : "通常投票"}</h2>
       <div class="vote-options">
         ${candidates.map(player => `<button class="vote-option" data-target="${player.id}">${escapeHtml(player.name)} に投票</button>`).join("")}
+        ${skipButton}
       </div>
     `;
     panel.querySelectorAll("[data-target]").forEach(button => {

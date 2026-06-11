@@ -21,6 +21,8 @@
     RESULT: "result"
   };
 
+  const SKIP_VOTE = "__skip__";
+
   const TEMPLATES = [
     { topic: "動物", constraint: "サバンナにいる", hint: "生息地" },
     { topic: "食べ物", constraint: "朝ごはんで出やすい", hint: "時間" },
@@ -416,12 +418,18 @@
     return [];
   }
 
+  function canSkipVote(state) {
+    return state.phase === PHASES.VOTE && state.week === 1;
+  }
+
   function castVote(state, voterId, targetId, now = Date.now()) {
     const voters = voteVoters(state);
     const candidates = voteCandidates(state);
+    const skip = targetId === SKIP_VOTE;
     if (!voters.some(player => player.id === voterId)) throw new Error("投票権がありません。");
-    if (!candidates.some(player => player.id === targetId)) throw new Error("投票先が不正です。");
-    if (state.phase === PHASES.VOTE && voterId === targetId && candidates.length > 1) throw new Error("通常投票では自分に投票できません。");
+    if (skip && !canSkipVote(state)) throw new Error("スキップは1週目の通常投票でだけ選べます。");
+    if (!skip && !candidates.some(player => player.id === targetId)) throw new Error("投票先が不正です。");
+    if (!skip && state.phase === PHASES.VOTE && voterId === targetId && candidates.length > 1) throw new Error("通常投票では自分に投票できません。");
     state.votes[voterId] = targetId;
     state.updatedAt = now;
     return state;
@@ -446,17 +454,18 @@
     const top = sorted.filter(([, count]) => count === topCount).map(([id]) => id);
     const tied = top.length !== 1;
     const targetId = tied ? "" : top[0];
+    const skipped = targetId === SKIP_VOTE;
     const target = state.players[targetId];
 
     state.voteHistory.push({
       week: state.week,
       final,
-      result: tied ? "同数" : target.name,
+      result: tied ? "同数" : skipped ? "スキップ" : target.name,
       votes: Object.entries(state.votes).map(([voterId, votedId]) => ({
         voterId,
         voterName: state.players[voterId]?.name || "不明",
         targetId: votedId,
-        targetName: state.players[votedId]?.name || "不明"
+        targetName: votedId === SKIP_VOTE ? "スキップ" : state.players[votedId]?.name || "不明"
       }))
     });
 
@@ -465,6 +474,10 @@
       return finishGame(state, "wolf", tied ? "最終解決で意見が割れました。" : "最終解決で人狼以外を告発しました。", now);
     }
 
+    if (skipped) {
+      if (shouldForceFinal(state)) return startVote(state, true, now);
+      return startWeek(state, now);
+    }
     if (!tied && target.role === ROLES.WOLF) {
       return finishGame(state, "villager", `${target.name}さんが人狼でした。`, now);
     }
@@ -548,6 +561,7 @@
   return {
     ROLES,
     PHASES,
+    SKIP_VOTE,
     TEMPLATES,
     TOPIC_BANK,
     defaultSettings,
@@ -574,6 +588,7 @@
     startVote,
     voteVoters,
     voteCandidates,
+    canSkipVote,
     castVote,
     allVotesSubmitted,
     resolveVotes,

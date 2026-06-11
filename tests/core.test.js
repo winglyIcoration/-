@@ -133,6 +133,37 @@ function forceRoles(state, roles) {
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
   Core.startWeek(state, 1000);
   Core.submitHiddenWord(state, "p1", "ライオン", 1001);
+  Core.submitHiddenWord(state, "p2", "キリン", 1002);
+  Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
+  Core.startReveal(state, 1004);
+  Core.revealCurrentWord(state, "p1", 1005);
+  Core.revealCurrentWord(state, "p2", 1006);
+  Core.revealCurrentWord(state, "p3", 1007);
+  Core.startDiscussion(state, 1008);
+  Core.startVote(state, false, 1009);
+  Core.castVote(state, "p1", Core.SKIP_VOTE, 1010);
+  Core.castVote(state, "p2", Core.SKIP_VOTE, 1011);
+  Core.castVote(state, "p3", Core.SKIP_VOTE, 1012);
+  Core.resolveVotes(state, 1013);
+  assert.equal(state.voteHistory[0].result, "スキップ");
+  assert.equal(Core.activeRoster(state.players).some(player => player.suspect), false);
+  assert.equal(state.phase, Core.PHASES.INPUT);
+  assert.equal(state.week, 2);
+}
+
+{
+  const state = roomWithPlayers(3);
+  forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
+  state.week = 2;
+  Core.startVote(state, false, 1000);
+  assert.throws(() => Core.castVote(state, "p1", Core.SKIP_VOTE, 1001), /スキップ/);
+}
+
+{
+  const state = roomWithPlayers(3);
+  forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
+  Core.startWeek(state, 1000);
+  Core.submitHiddenWord(state, "p1", "ライオン", 1001);
   Core.submitHiddenWord(state, "p2", " ライオン ", 1002);
   Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
   assert.equal(Object.keys(state.submissions).length, 3);
