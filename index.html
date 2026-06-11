@@ -6,6 +6,8 @@
   <title>制約ワードウルフ</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="./game-core.js" defer></script>
+  <script src="./firebase-config.js" defer></script>
+  <script type="module" src="./room-sync.js"></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -14,247 +16,91 @@
 
     <section id="screen-home" class="screen is-active">
       <div class="hero">
-        <p class="eyebrow">1台回し / GitHub Pages対応</p>
+        <p class="eyebrow">Master + Room Code</p>
         <h1>制約ワードウルフ</h1>
-        <p>村人はお題だけ、人狼はお題と制約を知っています。発言ログで被りを防ぎながら、最後に人狼を見つけます。</p>
+        <p>マスター端末で部屋を作り、参加者は自分のスマホから部屋コードを入力して参加します。</p>
       </div>
 
-      <div class="panel">
-        <button id="new-game-button" class="button primary full">新しく始める</button>
-        <button id="resume-button" class="button secondary full hidden">前回の続きから</button>
+      <div id="config-warning" class="notice hidden"></div>
+
+      <div class="panel stack">
+        <button id="create-room-button" class="button primary full">マスターとして部屋を作る</button>
+      </div>
+
+      <div class="panel stack">
+        <h2>部屋に参加</h2>
+        <label class="field-label">
+          部屋コード
+          <input id="join-code" class="input code-input" type="text" maxlength="4" autocomplete="off" placeholder="ABCD">
+        </label>
+        <label class="field-label">
+          名前
+          <input id="join-name" class="input" type="text" maxlength="16" autocomplete="off" placeholder="あなたの名前">
+        </label>
+        <button id="join-room-button" class="button success full">参加する</button>
       </div>
 
       <div class="rule-card">
-        <h2>基本ルール</h2>
+        <h2>新ルール</h2>
         <ul>
-          <li>スマホを順番に渡し、自分のカードだけ確認します。</li>
-          <li>お題そのもの、制約そのもの、既出の発言ワードは言えません。</li>
-          <li>投票で人狼を当てれば村人勝利。外すと投票先は容疑者になります。</li>
-          <li>容疑者は最後の「最終解決」で人狼を告発できます。</li>
+          <li>各週の開始時、生存者は30秒で伏せワードを入力します。</li>
+          <li>同じ週内の偶然の被りはセーフです。公開済みワードは次週以降禁止です。</li>
+          <li>容疑者はログ入力できませんが、生存者の開示後に声だけで介入できます。</li>
+          <li>通常投票で人狼を当てれば村人勝利。外した村人は容疑者になります。</li>
         </ul>
       </div>
     </section>
 
-    <section id="screen-setup" class="screen">
+    <section id="screen-host" class="screen">
       <header class="screen-header">
         <div>
-          <p class="eyebrow">Setup</p>
-          <h1>ゲーム設定</h1>
+          <p class="eyebrow">Master</p>
+          <h1>マスター画面</h1>
         </div>
-        <button class="button ghost small" data-action="home">戻る</button>
+        <button class="button ghost small" data-action="leave">退出</button>
       </header>
+
+      <div class="room-code-card">
+        <span>部屋コード</span>
+        <strong id="host-room-code">----</strong>
+      </div>
 
       <div class="stack">
+        <section id="host-setup-panel" class="panel"></section>
         <section class="panel">
-          <div class="setting-row">
-            <div>
-              <h2>プレイヤー</h2>
-              <p>3〜12人まで。名前は重複しないようにします。</p>
-            </div>
-            <div class="stepper" aria-label="プレイヤー人数">
-              <button data-action="players-down">-</button>
-              <strong id="player-count">4</strong>
-              <button data-action="players-up">+</button>
-            </div>
-          </div>
-          <div id="name-fields" class="name-fields"></div>
+          <h2>参加者</h2>
+          <div id="host-player-list" class="chips"></div>
         </section>
-
+        <section id="host-phase-panel" class="panel"></section>
         <section class="panel">
-          <div class="setting-row">
-            <div>
-              <h2>役職</h2>
-              <p>人狼を増やすと難しくなります。占い師は制約のヒントだけを見ます。</p>
-            </div>
-            <div class="stepper" aria-label="人狼人数">
-              <button data-action="wolves-down">-</button>
-              <strong id="wolf-count">1</strong>
-              <button data-action="wolves-up">+</button>
-            </div>
-          </div>
-
-          <label class="check-row">
-            <span>
-              <strong>占い師を入れる</strong>
-              <small>4人以上で利用できます。</small>
-            </span>
-            <input id="use-seer" type="checkbox">
-          </label>
-
-          <label class="field-label">
-            話し合い時間
-            <select id="discussion-seconds" class="input">
-              <option value="30">30秒</option>
-              <option value="45">45秒</option>
-              <option value="60">60秒</option>
-              <option value="90">90秒</option>
-              <option value="120">120秒</option>
-              <option value="180">180秒</option>
-            </select>
-          </label>
-        </section>
-
-        <section class="panel">
-          <div class="setting-row compact">
-            <div>
-              <h2>お題と制約</h2>
-              <p>制約は人狼だけが見る絞り込み条件です。</p>
-            </div>
-            <button id="template-button" class="button secondary small">おまかせ</button>
-          </div>
-
-          <label class="field-label">
-            お題
-            <input id="topic" class="input" type="text" autocomplete="off" placeholder="例: 動物">
-          </label>
-
-          <label class="field-label">
-            人狼の制約
-            <input id="constraint" class="input" type="text" autocomplete="off" placeholder="例: サバンナにいる">
-          </label>
-
-          <label class="field-label">
-            占い師ヒント
-            <input id="seer-hint" class="input" type="text" autocomplete="off" placeholder="例: 生息地">
-          </label>
+          <h2>公開ログ</h2>
+          <div id="host-log" class="word-log"></div>
         </section>
       </div>
-
-      <footer class="footer-actions">
-        <button id="start-game-button" class="button primary full">役職を配って開始</button>
-      </footer>
     </section>
 
-    <section id="screen-reveal" class="screen">
+    <section id="screen-player" class="screen">
       <header class="screen-header">
         <div>
-          <p class="eyebrow">Secret Card</p>
-          <h1>役職確認</h1>
+          <p class="eyebrow">Player</p>
+          <h1 id="player-title">参加者画面</h1>
         </div>
-        <span id="reveal-progress" class="pill"></span>
+        <button class="button ghost small" data-action="leave">退出</button>
       </header>
 
-      <div id="reveal-cover" class="panel center-card">
-        <p class="muted">この人だけが画面を見てください</p>
-        <h2 id="reveal-name"></h2>
-        <button id="show-card-button" class="button primary full">カードを見る</button>
+      <div id="player-card" class="private-card compact hidden"></div>
+
+      <div class="stack">
+        <section id="player-phase-panel" class="panel"></section>
+        <section class="panel">
+          <h2>参加者</h2>
+          <div id="player-list" class="chips"></div>
+        </section>
+        <section class="panel">
+          <h2>公開ログ</h2>
+          <div id="player-log" class="word-log"></div>
+        </section>
       </div>
-
-      <div id="private-card" class="private-card hidden">
-        <p class="card-label">お題</p>
-        <strong id="card-topic" class="card-topic"></strong>
-        <div class="card-divider"></div>
-        <p class="card-label">役職</p>
-        <strong id="card-role" class="card-role"></strong>
-        <div id="card-info" class="card-info"></div>
-      </div>
-
-      <footer class="footer-actions">
-        <button id="next-card-button" class="button primary full hidden">隠して次の人へ</button>
-        <button id="discussion-button" class="button success full hidden">全員確認済み。話し合いへ</button>
-      </footer>
-    </section>
-
-    <section id="screen-discussion" class="screen">
-      <header class="screen-header">
-        <div>
-          <p class="eyebrow">Discussion</p>
-          <h1 id="turn-title">話し合い</h1>
-        </div>
-        <span id="active-count" class="pill"></span>
-      </header>
-
-      <section class="panel timer-panel">
-        <div id="timer" class="timer">01:00</div>
-        <div class="button-row">
-          <button id="start-timer-button" class="button primary">開始</button>
-          <button id="pause-timer-button" class="button secondary">停止</button>
-          <button id="vote-button" class="button warn">投票へ</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>発言ログ</h2>
-        <div class="log-form">
-          <select id="speaker" class="input" aria-label="発言者"></select>
-          <input id="spoken-word" class="input" type="text" autocomplete="off" placeholder="発言したワード">
-        </div>
-        <div class="button-row">
-          <button id="add-log-button" class="button success">追加</button>
-          <button id="undo-log-button" class="button ghost">直前を取り消す</button>
-        </div>
-        <div id="word-log" class="word-log"></div>
-      </section>
-
-      <section class="panel">
-        <h2>現在の状態</h2>
-        <div id="player-status" class="chips"></div>
-      </section>
-    </section>
-
-    <section id="screen-vote" class="screen">
-      <header class="screen-header">
-        <div>
-          <p id="vote-kind" class="eyebrow">Vote</p>
-          <h1 id="vote-title">投票</h1>
-        </div>
-        <span id="vote-progress" class="pill"></span>
-      </header>
-
-      <div id="vote-cover" class="panel center-card">
-        <p class="muted">この人だけが投票してください</p>
-        <h2 id="voter-name"></h2>
-        <button id="open-vote-button" class="button primary full">投票画面を開く</button>
-      </div>
-
-      <div id="vote-box" class="panel hidden">
-        <p id="vote-help" class="muted"></p>
-        <div id="vote-options" class="vote-options"></div>
-      </div>
-    </section>
-
-    <section id="screen-result" class="screen">
-      <header class="screen-header">
-        <div>
-          <p class="eyebrow">Result</p>
-          <h1>結果発表</h1>
-        </div>
-        <span id="winner-pill" class="pill"></span>
-      </header>
-
-      <section class="panel result-hero">
-        <h2 id="winner-title"></h2>
-        <p id="result-reason"></p>
-      </section>
-
-      <section class="panel">
-        <h2>答え合わせ</h2>
-        <dl class="answer-list">
-          <div><dt>お題</dt><dd id="answer-topic"></dd></div>
-          <div><dt>制約</dt><dd id="answer-constraint"></dd></div>
-          <div id="answer-hint-row"><dt>占い師ヒント</dt><dd id="answer-hint"></dd></div>
-        </dl>
-      </section>
-
-      <section class="panel">
-        <h2>役職</h2>
-        <div id="role-list" class="result-list"></div>
-      </section>
-
-      <section class="panel">
-        <h2>投票履歴</h2>
-        <div id="vote-history" class="result-list"></div>
-      </section>
-
-      <section class="panel">
-        <h2>発言ログ</h2>
-        <div id="result-log" class="word-log"></div>
-      </section>
-
-      <footer class="footer-actions">
-        <button id="restart-button" class="button primary full">同じメンバーでもう一度</button>
-        <button class="button ghost full" data-action="home-clear">トップに戻る</button>
-      </footer>
     </section>
   </main>
 </body>

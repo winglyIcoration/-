@@ -1,76 +1,130 @@
 const assert = require("node:assert/strict");
 const Core = require("../game-core");
 
-function makeSettings(extra = {}) {
-  return Core.normalizeSettings({
-    playerCount: 4,
+function roomWithPlayers(count = 4) {
+  const state = Core.createRoom("TEST", "host");
+  for (let index = 1; index <= count; index++) {
+    Core.addOrUpdatePlayer(state, `p${index}`, `P${index}`);
+  }
+  state.settings = Core.normalizeSettings({
     wolfCount: 1,
-    useSeer: true,
-    discussionSeconds: 30,
-    names: ["A", "B", "C", "D"],
+    useSeer: count >= 4,
+    inputSeconds: 30,
+    discussionSeconds: 0,
+    maxWeeks: 3,
     topic: "動物",
     constraint: "サバンナにいる",
-    hint: "生息地",
-    ...extra
+    hint: "地"
   });
-}
-
-function makeGameWithRoles(roles) {
-  const state = Core.createGame(makeSettings({ playerCount: roles.length, names: roles.map((_, i) => `P${i + 1}`), useSeer: false }), () => 0);
-  state.players.forEach((player, index) => {
-    player.role = roles[index];
-  });
-  Core.startDiscussion(state);
   return state;
 }
 
+function forceRoles(state, roles) {
+  Object.values(state.players).forEach((player, index) => {
+    player.role = roles[index];
+    player.suspect = false;
+  });
+}
+
 {
-  const validation = Core.validateSettings(makeSettings({ names: ["A", "A", "C", "D"] }));
+  const state = roomWithPlayers(4);
+  const validation = Core.validateStart({ ...state.settings, useSeer: true }, state.players);
+  assert.equal(validation.ok, true);
+}
+
+{
+  const state = roomWithPlayers(3);
+  Core.addOrUpdatePlayer(state, "p3", "P1");
+  const validation = Core.validateStart(state.settings, state.players);
   assert.equal(validation.ok, false);
   assert.match(validation.errors.join("\n"), /同じ名前/);
 }
 
 {
-  const state = Core.createGame(makeSettings(), () => 0);
-  const roles = state.players.map(player => player.role);
+  const state = roomWithPlayers(4);
+  Core.assignRoles(state, () => 0);
+  const roles = Object.values(state.players).map(player => player.role);
   assert.equal(roles.filter(role => role === Core.ROLES.WOLF).length, 1);
   assert.equal(roles.filter(role => role === Core.ROLES.SEER).length, 1);
 }
 
 {
-  const state = makeGameWithRoles([Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.addLog(state, { playerId: "p2", word: "ライオン", time: "10:00" });
-  assert.throws(() => Core.addLog(state, { playerId: "p3", word: " ライオン ", time: "10:01" }), /すでに使われています/);
-  assert.throws(() => Core.addLog(state, { playerId: "p3", word: "動物", time: "10:01" }), /お題そのもの/);
-}
-
-{
-  const state = makeGameWithRoles([Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.startVote(state, "normal");
-  Core.castVote(state, "p2");
-  Core.castVote(state, "p1");
-  Core.castVote(state, "p1");
-  assert.equal(state.phase, "result");
+  const state = roomWithPlayers(3);
+  forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
+  Core.startWeek(state, 1000);
+  Core.submitHiddenWord(state, "p1", "ライオン", 1001);
+  Core.submitHiddenWord(state, "p2", " ライオン ", 1002);
+  Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
+  assert.equal(Object.keys(state.submissions).length, 3);
+  Core.startReveal(state, 1004);
+  Core.revealCurrentWord(state, "p1", 1005);
+  Core.revealCurrentWord(state, "p2", 1006);
+  Core.revealCurrentWord(state, "p3", 1007);
+  Core.startDiscussion(state, 1008);
+  Core.startVote(state, false, 1009);
+  Core.castVote(state, "p1", "p2", 1010);
+  Core.castVote(state, "p2", "p1", 1011);
+  Core.castVote(state, "p3", "p1", 1012);
+  Core.resolveVotes(state, 1013);
+  assert.equal(state.phase, Core.PHASES.RESULT);
   assert.equal(state.winner, "villager");
 }
 
 {
-  const state = makeGameWithRoles([Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  Core.startVote(state, "normal");
-  Core.castVote(state, "p2");
-  Core.castVote(state, "p3");
-  Core.castVote(state, "p2");
-  Core.castVote(state, "p2");
-  assert.equal(state.players.find(player => player.id === "p2").suspect, true);
-  assert.equal(["discussion", "finalVote"].includes(state.phase), true);
+  const state = roomWithPlayers(3);
+  forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
+  Core.startWeek(state, 1000);
+  Core.submitHiddenWord(state, "p1", "ライオン", 1001);
+  Core.submitHiddenWord(state, "p2", "キリン", 1002);
+  Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
+  Core.startReveal(state, 1004);
+  Core.revealCurrentWord(state, "p1", 1005);
+  Core.revealCurrentWord(state, "p2", 1006);
+  Core.revealCurrentWord(state, "p3", 1007);
+  Core.startDiscussion(state, 1008);
+  Core.startVote(state, false, 1009);
+  Core.castVote(state, "p1", "p2", 1010);
+  Core.castVote(state, "p2", "p3", 1011);
+  Core.castVote(state, "p3", "p2", 1012);
+  Core.resolveVotes(state, 1013);
+  assert.equal(state.players.p2.suspect, true);
+  assert.equal(state.phase, Core.PHASES.FINAL_VOTE);
+  assert.throws(() => Core.submitHiddenWord(state, "p2", "チーター", 1014), /伏せ入力の時間ではありません|容疑者/);
 }
 
 {
-  const state = makeGameWithRoles([Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
-  state.players.find(player => player.id === "p2").suspect = true;
-  Core.startVote(state, "final");
-  Core.castVote(state, "p1");
-  assert.equal(state.phase, "result");
+  const state = roomWithPlayers(4);
+  forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
+  Core.startWeek(state, 1000);
+  Core.submitHiddenWord(state, "p1", "ライオン", 1001);
+  Core.submitHiddenWord(state, "p2", "キリン", 1002);
+  Core.submitHiddenWord(state, "p3", "ゾウ", 1003);
+  Core.submitHiddenWord(state, "p4", "カバ", 1004);
+  Core.startReveal(state, 1005);
+  Core.revealCurrentWord(state, "p1", 1006);
+  Core.revealCurrentWord(state, "p2", 1007);
+  Core.revealCurrentWord(state, "p3", 1008);
+  Core.revealCurrentWord(state, "p4", 1009);
+  Core.startDiscussion(state, 1010);
+  Core.startVote(state, false, 1011);
+  Core.castVote(state, "p1", "p2", 1012);
+  Core.castVote(state, "p2", "p3", 1013);
+  Core.castVote(state, "p3", "p2", 1014);
+  Core.castVote(state, "p4", "p2", 1015);
+  Core.resolveVotes(state, 1016);
+  assert.equal(state.phase, Core.PHASES.INPUT);
+  assert.throws(() => Core.submitHiddenWord(state, "p1", "ライオン", 1017), /過去週/);
+  Core.submitHiddenWord(state, "p1", "チーター", 1018);
+}
+
+{
+  const state = roomWithPlayers(3);
+  forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
+  state.players.p2.suspect = true;
+  Core.startVote(state, true, 1000);
+  Core.castVote(state, "p2", "p1", 1001);
+  Core.resolveVotes(state, 1002);
+  assert.equal(state.phase, Core.PHASES.RESULT);
   assert.equal(state.winner, "villager");
 }
 

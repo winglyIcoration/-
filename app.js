@@ -1,88 +1,527 @@
 (() => {
   const Core = window.CWWCore;
-  const STATE_KEY = "constraint-word-wolf-state-v3";
-  const SETTINGS_KEY = "constraint-word-wolf-settings-v3";
-
-  let settings = Core.defaultSettings();
-  let state = null;
-  let timerId = null;
+  let Room = null;
+  let mode = "";
+  let roomCode = "";
+  let room = null;
+  let unsubscribe = null;
+  let hostDraftSettings = null;
+  let busy = false;
 
   const $ = selector => document.querySelector(selector);
 
   document.addEventListener("DOMContentLoaded", init);
 
-  function init() {
-    settings = loadSettings();
-    bindEvents();
-    renderHome();
-    renderSetup();
+  async function init() {
+    Room = await waitForRoomApi();
+    bindStaticEvents();
+    renderConfigState();
+    setInterval(tick, 500);
+    const query = new URLSearchParams(location.search);
+    const code = query.get("room");
+    if (code) $("#join-code").value = code.toUpperCase();
   }
 
-  function bindEvents() {
-    $("#new-game-button").addEventListener("click", () => {
-      clearSavedState();
-      settings = loadSettings();
-      renderSetup();
-      showScreen("screen-setup");
+  function waitForRoomApi() {
+    if (window.CWWRoom) return Promise.resolve(window.CWWRoom);
+    return new Promise(resolve => {
+      window.addEventListener("cww-room-ready", () => resolve(window.CWWRoom), { once: true });
     });
+  }
 
-    $("#resume-button").addEventListener("click", () => {
-      const saved = loadState();
-      if (!saved) return showToast("再開できるゲームがありません。");
-      state = saved;
-      routeState();
-    });
-
+  function bindStaticEvents() {
+    $("#create-room-button").addEventListener("click", createHostRoom);
+    $("#join-room-button").addEventListener("click", joinRoom);
     document.body.addEventListener("click", event => {
       const action = event.target.closest("[data-action]")?.dataset.action;
-      if (!action) return;
-      if (action === "home") {
-        showScreen("screen-home");
-        renderHome();
-      }
-      if (action === "home-clear") {
-        stopTimer();
-        clearSavedState();
-        state = null;
-        renderHome();
-        showScreen("screen-home");
-      }
-      if (action === "players-down") adjustPlayers(-1);
-      if (action === "players-up") adjustPlayers(1);
-      if (action === "wolves-down") adjustWolves(-1);
-      if (action === "wolves-up") adjustWolves(1);
+      if (action === "leave") leaveRoom();
     });
+  }
 
-    $("#use-seer").addEventListener("change", () => {
-      collectSettings();
-      renderSetup();
+  function renderConfigState() {
+    const warning = $("#config-warning");
+    const disabled = !Room.configured;
+    $("#create-room-button").disabled = disabled;
+    $("#join-room-button").disabled = disabled;
+    warning.classList.toggle("hidden", !disabled);
+    if (disabled) {
+      warning.innerHTML = `
+        <strong>Firebase設定が未投入です。</strong><br>
+        GitHub Pagesで部屋コード同期を使うには、<code>firebase-config.js</code> に Firebase Web config を設定してください。
+      `;
+    }
+  }
+
+  async function createHostRoom() {
+    await run(async () => {
+      await Room.ready();
+      const hostId = Room.userId;
+      const code = await generateRoomCode();
+      const initial = Core.createRoom(code, hostId);
+      await Room.createRoom(initial);
+      mode = "host";
+      roomCode = code;
+      subscribe(code);
+      history.replaceState(null, "", `?room=${code}`);
+      showScreen("screen-host");
     });
-    $("#discussion-seconds").addEventListener("change", collectSettings);
-    $("#template-button").addEventListener("click", pickTemplate);
-    $("#start-game-button").addEventListener("click", startGame);
-    $("#show-card-button").addEventListener("click", openCard);
-    $("#next-card-button").addEventListener("click", nextCard);
-    $("#discussion-button").addEventListener("click", beginDiscussion);
-    $("#start-timer-button").addEventListener("click", startTimer);
-    $("#pause-timer-button").addEventListener("click", stopTimer);
-    $("#vote-button").addEventListener("click", () => {
-      stopTimer();
-      Core.startVote(state, "normal");
-      saveState();
-      renderVote();
-      showScreen("screen-vote");
+  }
+
+  async function generateRoomCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    for (let attempt = 0; attempt < 12; attempt++) {
+      let code = "";
+      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+      if (!await Room.getRoom(code)) return code;
+    }
+    throw new Error("部屋コードの作成に失敗しました。もう一度試してください。");
+  }
+
+  async function joinRoom() {
+    const code = $("#join-code").value.trim().toUpperCase();
+    const name = $("#join-name").value.trim();
+    if (!/^[A-Z0-9]{4}$/.test(code)) return showToast("4文字の部屋コードを入力してください。");
+    if (!name) return showToast("名前を入力してください。");
+
+    await run(async () => {
+      await Room.ready();
+      const exists = await Room.getRoom(code);
+      if (!exists) throw new Error("部屋が見つかりません。コードを確認してください。");
+      await Room.mutateRoom(code, state => {
+        if (state.phase !== Core.PHASES.LOBBY) throw new Error("この部屋はすでに開始しています。");
+        const duplicate = Core.activeRoster(state.players).some(player => {
+          return player.id !== Room.userId && Core.normalizeText(player.name) === Core.normalizeText(name);
+        });
+        if (duplicate) throw new Error("同じ名前の参加者がいます。別名にしてください。");
+        return Core.addOrUpdatePlayer(state, Room.userId, name);
+      });
+      mode = "player";
+      roomCode = code;
+      subscribe(code);
+      history.replaceState(null, "", `?room=${code}`);
+      showScreen("screen-player");
     });
-    $("#add-log-button").addEventListener("click", addLog);
-    $("#undo-log-button").addEventListener("click", undoLog);
-    $("#open-vote-button").addEventListener("click", openVote);
-    $("#restart-button").addEventListener("click", restartSamePlayers);
+  }
+
+  function subscribe(code) {
+    if (unsubscribe) unsubscribe();
+    unsubscribe = Room.subscribe(code, next => {
+      if (!next) {
+        showToast("部屋が見つからなくなりました。");
+        leaveRoom(false);
+        return;
+      }
+      room = next;
+      renderRoom();
+    }, error => showToast(error.message));
+  }
+
+  function leaveRoom(clearUrl = true) {
+    if (unsubscribe) unsubscribe();
+    unsubscribe = null;
+    mode = "";
+    roomCode = "";
+    room = null;
+    hostDraftSettings = null;
+    if (clearUrl) history.replaceState(null, "", location.pathname);
+    showScreen("screen-home");
+  }
+
+  function renderRoom() {
+    if (!room) return;
+    if (mode === "host") renderHost();
+    if (mode === "player") renderPlayer();
+  }
+
+  function renderHost() {
+    $("#host-room-code").textContent = room.roomCode;
+    if (room.phase === Core.PHASES.LOBBY && !hostDraftSettings) {
+      hostDraftSettings = Core.normalizeSettings(room.settings);
+    }
+    renderHostSetup();
+    renderPlayers("#host-player-list", true);
+    renderHostPhase();
+    renderLogs("#host-log");
+  }
+
+  function renderHostSetup() {
+    const panel = $("#host-setup-panel");
+    if (room.phase !== Core.PHASES.LOBBY) {
+      panel.classList.add("hidden");
+      return;
+    }
+    panel.classList.remove("hidden");
+    const settings = hostDraftSettings || Core.normalizeSettings(room.settings);
+    panel.innerHTML = `
+      <h2>ゲーム設定</h2>
+      <div class="form-grid">
+        <label class="field-label">人狼人数
+          <input id="host-wolves" class="input" type="number" min="1" max="6" value="${settings.wolfCount}">
+        </label>
+        <label class="field-label">最大週数
+          <input id="host-max-weeks" class="input" type="number" min="1" max="10" value="${settings.maxWeeks}">
+        </label>
+        <label class="field-label">伏せ入力秒数
+          <input id="host-input-seconds" class="input" type="number" min="10" max="180" value="${settings.inputSeconds}">
+        </label>
+        <label class="field-label">話し合い秒数
+          <select id="host-discussion-seconds" class="input">
+            ${[0, 60, 120, 180, 300].map(sec => `<option value="${sec}" ${settings.discussionSeconds === sec ? "selected" : ""}>${sec ? `${sec}秒` : "制限なし"}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <label class="check-row">
+        <span><strong>占い師を入れる</strong><small>ヒントは1〜3文字推奨です。</small></span>
+        <input id="host-use-seer" type="checkbox" ${settings.useSeer ? "checked" : ""}>
+      </label>
+      <label class="field-label">お題
+        <input id="host-topic" class="input" value="${escapeHtml(settings.topic)}">
+      </label>
+      <label class="field-label">人狼の制約
+        <input id="host-constraint" class="input" value="${escapeHtml(settings.constraint)}">
+      </label>
+      <label class="field-label">占い師ヒント
+        <input id="host-hint" class="input" maxlength="8" value="${escapeHtml(settings.hint)}">
+      </label>
+      <div class="button-row">
+        <button id="host-template" class="button secondary">おまかせ</button>
+        <button id="host-start" class="button primary">ゲーム開始</button>
+      </div>
+    `;
+    panel.querySelectorAll("input, select").forEach(input => input.addEventListener("input", collectHostDraft));
+    $("#host-template").addEventListener("click", () => {
+      const item = Core.TEMPLATES[Math.floor(Math.random() * Core.TEMPLATES.length)];
+      hostDraftSettings = Core.normalizeSettings({ ...collectHostDraft(false), ...item });
+      renderHostSetup();
+    });
+    $("#host-start").addEventListener("click", hostStartGame);
+  }
+
+  function collectHostDraft(save = true) {
+    const settings = Core.normalizeSettings({
+      wolfCount: Number($("#host-wolves")?.value || 1),
+      maxWeeks: Number($("#host-max-weeks")?.value || 3),
+      inputSeconds: Number($("#host-input-seconds")?.value || 30),
+      discussionSeconds: Number($("#host-discussion-seconds")?.value || 0),
+      useSeer: Boolean($("#host-use-seer")?.checked),
+      topic: $("#host-topic")?.value || "",
+      constraint: $("#host-constraint")?.value || "",
+      hint: $("#host-hint")?.value || ""
+    });
+    if (save) hostDraftSettings = settings;
+    return settings;
+  }
+
+  async function hostStartGame() {
+    await run(async () => {
+      const draft = collectHostDraft();
+      await Room.mutateRoom(roomCode, state => {
+        state.settings = draft;
+        Core.assignRoles(state);
+        return Core.startWeek(state);
+      });
+    });
+  }
+
+  function renderHostPhase() {
+    const panel = $("#host-phase-panel");
+    const living = Core.livingPlayers(room);
+    const suspects = Core.suspectPlayers(room);
+    if (room.phase === Core.PHASES.LOBBY) {
+      panel.innerHTML = `<h2>待機中</h2><p class="muted">参加者が部屋コードを入力して入室するのを待っています。</p>`;
+      return;
+    }
+    if (room.phase === Core.PHASES.INPUT) {
+      panel.innerHTML = `
+        <h2>${room.week}週目: 伏せ入力</h2>
+        <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
+        <p class="muted">送信済み ${Object.keys(room.submissions || {}).length} / ${living.length}</p>
+        <button id="force-reveal" class="button primary full">開示フェーズへ</button>
+      `;
+      $("#force-reveal").addEventListener("click", () => advanceToReveal(true));
+      return;
+    }
+    if (room.phase === Core.PHASES.REVEAL) {
+      const current = Core.currentRevealPlayer(room);
+      panel.innerHTML = `<h2>順番開示</h2><p>現在の開示順: <strong>${escapeHtml(current?.name || "完了")}</strong></p>`;
+      return;
+    }
+    if (room.phase === Core.PHASES.SUSPECT_TALK) {
+      panel.innerHTML = `
+        <h2>容疑者のログなし発言</h2>
+        <p class="muted">容疑者: ${suspects.map(player => escapeHtml(player.name)).join(", ")}</p>
+        <button id="start-discussion" class="button primary full">話し合いへ</button>
+      `;
+      $("#start-discussion").addEventListener("click", () => mutate(state => Core.startDiscussion(state)));
+      return;
+    }
+    if (room.phase === Core.PHASES.DISCUSSION) {
+      panel.innerHTML = `
+        <h2>話し合い</h2>
+        ${room.discussionEndsAt ? `<div class="countdown" data-countdown="${room.discussionEndsAt}"></div>` : `<p class="muted">制限時間なし</p>`}
+        <div class="button-row">
+          <button id="start-vote" class="button warn">通常投票へ</button>
+          <button id="start-final" class="button secondary">最終解決へ</button>
+        </div>
+      `;
+      $("#start-vote").addEventListener("click", () => mutate(state => Core.startVote(state, false)));
+      $("#start-final").addEventListener("click", () => mutate(state => Core.startVote(state, true)));
+      return;
+    }
+    if (room.phase === Core.PHASES.VOTE || room.phase === Core.PHASES.FINAL_VOTE) {
+      const voters = Core.voteVoters(room);
+      panel.innerHTML = `
+        <h2>${room.phase === Core.PHASES.FINAL_VOTE ? "最終解決" : "通常投票"}</h2>
+        <p class="muted">投票済み ${Object.keys(room.votes || {}).length} / ${voters.length}</p>
+      `;
+      return;
+    }
+    if (room.phase === Core.PHASES.RESULT) {
+      panel.innerHTML = `
+        <h2>結果</h2>
+        <p class="${room.winner === "villager" ? "role-villager" : "role-wolf"}">${room.winner === "villager" ? "村人陣営の勝ち" : "人狼陣営の勝ち"}</p>
+        <p>${escapeHtml(room.reason)}</p>
+        <button id="back-lobby" class="button primary full">同じ部屋で新規ゲーム</button>
+      `;
+      $("#back-lobby").addEventListener("click", () => mutate(state => {
+        state.phase = Core.PHASES.LOBBY;
+        state.week = 0;
+        state.submissions = {};
+        state.logs = [];
+        state.votes = {};
+        state.voteHistory = [];
+        state.winner = "";
+        state.reason = "";
+        Object.values(state.players).forEach(player => {
+          player.role = "";
+          player.suspect = false;
+        });
+        return state;
+      }));
+    }
+  }
+
+  function renderPlayer() {
+    const me = room.players[Room.userId];
+    $("#player-title").textContent = me ? `${me.name} さん` : "参加者画面";
+    renderPrivateCard(me);
+    renderPlayerPhase(me);
+    renderPlayers("#player-list", false);
+    renderLogs("#player-log");
+  }
+
+  function renderPrivateCard(me) {
+    const card = $("#player-card");
+    if (!me || !me.role || room.phase === Core.PHASES.LOBBY || room.phase === Core.PHASES.RESULT) {
+      card.classList.add("hidden");
+      return;
+    }
+    const privateCard = Core.privateCard(room, me.id);
+    card.classList.remove("hidden");
+    card.innerHTML = `
+      <p class="card-label">お題</p>
+      <strong class="card-topic">${escapeHtml(privateCard.topic)}</strong>
+      <div class="card-divider"></div>
+      <p class="card-label">役職</p>
+      <strong class="card-role ${roleClass(privateCard.role)}">${escapeHtml(privateCard.role)}</strong>
+      <div class="card-info"><strong>${escapeHtml(privateCard.label)}</strong><br>${escapeHtml(privateCard.value)}</div>
+    `;
+  }
+
+  function renderPlayerPhase(me) {
+    const panel = $("#player-phase-panel");
+    if (!me) {
+      panel.innerHTML = `<h2>入室情報がありません</h2><p class="muted">トップに戻って入り直してください。</p>`;
+      return;
+    }
+    if (room.phase === Core.PHASES.LOBBY) {
+      panel.innerHTML = `<h2>待機中</h2><p class="muted">マスターがゲームを開始するまで待ってください。</p>`;
+      return;
+    }
+    if (room.phase === Core.PHASES.INPUT) {
+      if (me.suspect) {
+        panel.innerHTML = `<h2>${room.week}週目: 伏せ入力</h2><p class="muted">あなたは容疑者です。伏せ入力はできません。</p>`;
+        return;
+      }
+      const submitted = room.submissions?.[me.id];
+      panel.innerHTML = `
+        <h2>${room.week}週目: 伏せ入力</h2>
+        <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
+        ${submitted ? `<p class="success-text">送信済み: ${escapeHtml(submitted.word)}</p>` : `
+          <label class="field-label">伏せワード
+            <input id="hidden-word" class="input" autocomplete="off" placeholder="お題に沿ったワード">
+          </label>
+          <button id="submit-word" class="button primary full">伏せて送信</button>
+        `}
+      `;
+      if (!submitted) $("#submit-word").addEventListener("click", submitWord);
+      return;
+    }
+    if (room.phase === Core.PHASES.REVEAL) {
+      const current = Core.currentRevealPlayer(room);
+      if (current?.id === me.id) {
+        const word = room.submissions?.[me.id]?.word || "";
+        panel.innerHTML = `
+          <h2>あなたの開示順です</h2>
+          <p class="muted">ボタンを押したら、公開されたワードを声に出して読んでください。</p>
+          <button id="reveal-word" class="button primary full">「${escapeHtml(word)}」を明らかにする</button>
+        `;
+        $("#reveal-word").addEventListener("click", () => mutate(state => Core.revealCurrentWord(state, me.id)));
+      } else {
+        panel.innerHTML = `<h2>順番開示</h2><p>現在の開示順: <strong>${escapeHtml(current?.name || "完了")}</strong></p>`;
+      }
+      return;
+    }
+    if (room.phase === Core.PHASES.SUSPECT_TALK) {
+      panel.innerHTML = me.suspect
+        ? `<h2>ログなし発言</h2><p class="muted">声だけで発言できます。人狼を揺さぶるトラップを仕掛けられます。</p>`
+        : `<h2>容疑者の発言中</h2><p class="muted">ログには残りません。よく聞いてください。</p>`;
+      return;
+    }
+    if (room.phase === Core.PHASES.DISCUSSION) {
+      panel.innerHTML = `<h2>話し合い</h2>${room.discussionEndsAt ? `<div class="countdown" data-countdown="${room.discussionEndsAt}"></div>` : `<p class="muted">制限時間なし。マスターが投票へ進めます。</p>`}`;
+      return;
+    }
+    if (room.phase === Core.PHASES.VOTE || room.phase === Core.PHASES.FINAL_VOTE) {
+      renderPlayerVote(panel, me);
+      return;
+    }
+    if (room.phase === Core.PHASES.RESULT) {
+      panel.innerHTML = renderResult();
+    }
+  }
+
+  function renderPlayerVote(panel, me) {
+    const voters = Core.voteVoters(room);
+    const voted = room.votes?.[me.id];
+    if (!voters.some(player => player.id === me.id)) {
+      panel.innerHTML = `<h2>${room.phase === Core.PHASES.FINAL_VOTE ? "最終解決" : "通常投票"}</h2><p class="muted">あなたにはこの投票の投票権がありません。</p>`;
+      return;
+    }
+    if (voted) {
+      panel.innerHTML = `<h2>投票済み</h2><p class="muted">全員の投票を待っています。</p>`;
+      return;
+    }
+    const candidates = Core.voteCandidates(room).filter(player => room.phase === Core.PHASES.FINAL_VOTE || player.id !== me.id);
+    panel.innerHTML = `
+      <h2>${room.phase === Core.PHASES.FINAL_VOTE ? "最終解決" : "通常投票"}</h2>
+      <div class="vote-options">
+        ${candidates.map(player => `<button class="vote-option" data-target="${player.id}">${escapeHtml(player.name)} に投票</button>`).join("")}
+      </div>
+    `;
+    panel.querySelectorAll("[data-target]").forEach(button => {
+      button.addEventListener("click", () => mutate(state => Core.castVote(state, me.id, button.dataset.target)));
+    });
+  }
+
+  async function submitWord() {
+    const input = $("#hidden-word");
+    const word = input.value.trim();
+    await run(async () => {
+      await Room.mutateRoom(roomCode, state => Core.submitHiddenWord(state, Room.userId, word));
+    });
+  }
+
+  async function advanceToReveal(fillMissing) {
+    await mutate(state => {
+      if (fillMissing) fillMissingWords(state);
+      return Core.startReveal(state);
+    });
+  }
+
+  function fillMissingWords(state) {
+    Core.livingPlayers(state).forEach(player => {
+      if (!state.submissions[player.id]) {
+        state.submissions[player.id] = {
+          playerId: player.id,
+          word: "（未入力）",
+          normalized: `__missing_${state.week}_${player.id}`,
+          submittedAt: Date.now(),
+          revealed: false
+        };
+      }
+    });
+  }
+
+  async function tick() {
+    renderCountdowns();
+    if (!room || mode !== "host" || busy) return;
+    if (room.phase === Core.PHASES.INPUT && (Date.now() >= room.inputEndsAt || Core.allLivingSubmitted(room))) {
+      await advanceToReveal(Date.now() >= room.inputEndsAt);
+    }
+    if ((room.phase === Core.PHASES.VOTE || room.phase === Core.PHASES.FINAL_VOTE) && Core.allVotesSubmitted(room)) {
+      await mutate(state => Core.resolveVotes(state));
+    }
+    if (room.phase === Core.PHASES.DISCUSSION && room.discussionEndsAt && Date.now() >= room.discussionEndsAt) {
+      await mutate(state => Core.startVote(state, false));
+    }
+  }
+
+  function renderCountdowns() {
+    document.querySelectorAll("[data-countdown]").forEach(el => {
+      const end = Number(el.dataset.countdown);
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      el.textContent = `${left}秒`;
+      el.classList.toggle("danger", left <= 5);
+    });
+  }
+
+  async function mutate(mutator) {
+    await run(async () => {
+      await Room.mutateRoom(roomCode, mutator);
+    });
+  }
+
+  async function run(task) {
+    if (busy) return;
+    busy = true;
+    try {
+      await task();
+    } catch (error) {
+      showToast(error.message || String(error));
+    } finally {
+      busy = false;
+    }
+  }
+
+  function renderPlayers(selector, revealRoles) {
+    const result = room.phase === Core.PHASES.RESULT;
+    $(selector).innerHTML = Core.activeRoster(room.players).map(player => {
+      const role = (revealRoles && result) ? ` / ${player.role}` : "";
+      const suspect = player.suspect ? " / 容疑者" : "";
+      return `<span class="chip ${player.suspect ? "suspect" : ""}">${escapeHtml(player.name)}${escapeHtml(role)}${suspect}</span>`;
+    }).join("") || `<span class="muted">まだ参加者がいません。</span>`;
+  }
+
+  function renderLogs(selector) {
+    const logs = room.logs || [];
+    $(selector).innerHTML = logs.length ? logs.map(log => `
+      <div class="log-item">
+        <strong>${log.week}週目 / ${escapeHtml(log.playerName)}</strong>
+        <span>${escapeHtml(log.word)}</span>
+      </div>
+    `).join("") : `<div class="result-item">公開ログはまだありません。</div>`;
+  }
+
+  function renderResult() {
+    const villagerWin = room.winner === "villager";
+    return `
+      <h2 class="${villagerWin ? "role-villager" : "role-wolf"}">${villagerWin ? "村人陣営の勝ち" : "人狼陣営の勝ち"}</h2>
+      <p>${escapeHtml(room.reason)}</p>
+      <div class="answer-list compact-list">
+        <div><dt>お題</dt><dd>${escapeHtml(room.settings.topic)}</dd></div>
+        <div><dt>制約</dt><dd>${escapeHtml(room.settings.constraint)}</dd></div>
+        ${room.settings.useSeer ? `<div><dt>ヒント</dt><dd>${escapeHtml(room.settings.hint)}</dd></div>` : ""}
+      </div>
+      <div class="result-list">
+        ${Core.activeRoster(room.players).map(player => `<div class="result-item two-col"><strong>${escapeHtml(player.name)}</strong><span class="${roleClass(player.role)}">${player.role}${player.suspect ? " / 容疑者" : ""}</span></div>`).join("")}
+      </div>
+    `;
   }
 
   function showScreen(id) {
     hideToast();
-    document.querySelectorAll(".screen").forEach(screen => {
-      screen.classList.toggle("is-active", screen.id === id);
-    });
+    document.querySelectorAll(".screen").forEach(screen => screen.classList.toggle("is-active", screen.id === id));
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
@@ -97,379 +536,18 @@
     $("#toast").classList.remove("show");
   }
 
-  function renderHome() {
-    $("#resume-button").classList.toggle("hidden", !loadState());
-  }
-
-  function renderSetup() {
-    settings = Core.normalizeSettings(settings);
-    $("#player-count").textContent = settings.playerCount;
-    $("#wolf-count").textContent = settings.wolfCount;
-    $("#use-seer").checked = settings.useSeer;
-    $("#discussion-seconds").value = String(settings.discussionSeconds);
-    $("#topic").value = settings.topic;
-    $("#constraint").value = settings.constraint;
-    $("#seer-hint").value = settings.hint;
-
-    const nameFields = $("#name-fields");
-    nameFields.innerHTML = settings.names.map((name, index) => `
-      <label class="name-field">
-        <span class="number">${index + 1}</span>
-        <input class="input" data-name-index="${index}" value="${escapeHtml(name)}" autocomplete="off" aria-label="プレイヤー${index + 1}">
-      </label>
-    `).join("");
-
-    nameFields.querySelectorAll("[data-name-index]").forEach(input => {
-      input.addEventListener("input", collectSettings);
-    });
-    saveSettings();
-  }
-
-  function collectSettings() {
-    const names = Array.from(document.querySelectorAll("[data-name-index]")).map((input, index) => {
-      return input.value.trim() || `プレイヤー${index + 1}`;
-    });
-    settings = Core.normalizeSettings({
-      ...settings,
-      names,
-      useSeer: $("#use-seer").checked,
-      discussionSeconds: Number($("#discussion-seconds").value),
-      topic: $("#topic").value,
-      constraint: $("#constraint").value,
-      hint: $("#seer-hint").value
-    });
-    saveSettings();
-  }
-
-  function adjustPlayers(delta) {
-    collectSettings();
-    settings.playerCount = Math.max(3, Math.min(12, settings.playerCount + delta));
-    settings = Core.normalizeSettings(settings);
-    renderSetup();
-  }
-
-  function adjustWolves(delta) {
-    collectSettings();
-    settings.wolfCount = Math.max(1, Math.min(Core.maxWolfCount(settings), settings.wolfCount + delta));
-    settings = Core.normalizeSettings(settings);
-    renderSetup();
-  }
-
-  function pickTemplate() {
-    const template = Core.TEMPLATES[Math.floor(Math.random() * Core.TEMPLATES.length)];
-    settings = Core.normalizeSettings({ ...settings, ...template });
-    renderSetup();
-  }
-
-  function startGame() {
-    collectSettings();
-    const validation = Core.validateSettings(settings);
-    if (!validation.ok) {
-      showToast(validation.errors.join("\n"));
-      return;
-    }
-    try {
-      state = Core.createGame(validation.settings);
-      saveState();
-      renderReveal();
-      showScreen("screen-reveal");
-    } catch (error) {
-      showToast(error.message);
-    }
-  }
-
-  function renderReveal() {
-    const player = state.players[state.revealIndex];
-    $("#reveal-progress").textContent = `${state.revealIndex + 1} / ${state.players.length}`;
-    $("#reveal-name").textContent = `${player.name} さん`;
-    $("#reveal-cover").classList.toggle("hidden", state.cardOpen);
-    $("#private-card").classList.toggle("hidden", !state.cardOpen);
-    $("#next-card-button").classList.toggle("hidden", !state.cardOpen || state.revealIndex >= state.players.length - 1);
-    $("#discussion-button").classList.toggle("hidden", !state.cardOpen || state.revealIndex < state.players.length - 1);
-
-    if (!state.cardOpen) return;
-    const card = Core.privateCard(state, player.id);
-    $("#card-topic").textContent = card.topic;
-    $("#card-role").textContent = card.role;
-    $("#card-role").className = `card-role ${roleClass(card.role)}`;
-    $("#card-info").innerHTML = `<strong>${escapeHtml(card.infoLabel)}</strong><br>${escapeHtml(card.info)}`;
-  }
-
-  function openCard() {
-    state.cardOpen = true;
-    saveState();
-    renderReveal();
-  }
-
-  function nextCard() {
-    state.cardOpen = false;
-    state.revealIndex += 1;
-    saveState();
-    renderReveal();
-  }
-
-  function beginDiscussion() {
-    Core.startDiscussion(state);
-    saveState();
-    renderDiscussion();
-    showScreen("screen-discussion");
-  }
-
-  function renderDiscussion() {
-    $("#turn-title").textContent = `${state.currentTurn}ターン目`;
-    const active = Core.activePlayers(state);
-    $("#active-count").textContent = `投票対象 ${active.length}人`;
-
-    $("#speaker").innerHTML = active.map(player => {
-      return `<option value="${player.id}">${escapeHtml(player.name)}</option>`;
-    }).join("");
-    renderTimer();
-    renderLogs("#word-log", state.logs);
-    renderStatus();
-    saveState();
-  }
-
-  function renderStatus() {
-    $("#player-status").innerHTML = state.players.map(player => {
-      const className = player.suspect ? "chip suspect" : "chip";
-      const suffix = player.suspect ? " / 容疑者" : "";
-      return `<span class="${className}">${escapeHtml(player.name)}${suffix}</span>`;
-    }).join("");
-  }
-
-  function renderTimer() {
-    const timer = $("#timer");
-    timer.textContent = formatTime(state.timerLeft);
-    timer.classList.toggle("warn", state.timerLeft <= 15 && state.timerLeft > 5);
-    timer.classList.toggle("danger", state.timerLeft <= 5);
-  }
-
-  function startTimer() {
-    if (!state || state.phase !== "discussion") return;
-    stopTimer(false);
-    timerId = window.setInterval(() => {
-      state.timerLeft = Math.max(0, state.timerLeft - 1);
-      renderTimer();
-      saveState();
-      if (state.timerLeft === 0) {
-        stopTimer(false);
-        Core.startVote(state, "normal");
-        saveState();
-        renderVote();
-        showScreen("screen-vote");
-      }
-    }, 1000);
-  }
-
-  function stopTimer(render = true) {
-    if (timerId) {
-      window.clearInterval(timerId);
-      timerId = null;
-    }
-    if (render && state?.phase === "discussion") renderTimer();
-  }
-
-  function addLog() {
-    try {
-      Core.addLog(state, {
-        playerId: $("#speaker").value,
-        word: $("#spoken-word").value,
-        time: new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
-      });
-      $("#spoken-word").value = "";
-      renderDiscussion();
-    } catch (error) {
-      showToast(error.message);
-    }
-  }
-
-  function undoLog() {
-    try {
-      Core.undoLog(state);
-      renderDiscussion();
-    } catch (error) {
-      showToast(error.message);
-    }
-  }
-
-  function renderVote() {
-    const vote = state.vote;
-    const voter = Core.currentVoter(state);
-    const finalMode = vote.mode === "final";
-    $("#vote-kind").textContent = finalMode ? "Final Vote" : "Vote";
-    $("#vote-title").textContent = finalMode ? "最終解決" : "人狼投票";
-    $("#vote-progress").textContent = `${vote.index + 1} / ${vote.voters.length}`;
-    $("#voter-name").textContent = `${voter.name} さん`;
-    $("#vote-cover").classList.toggle("hidden", vote.choicesOpen);
-    $("#vote-box").classList.toggle("hidden", !vote.choicesOpen);
-
-    if (!vote.choicesOpen) return;
-    $("#vote-help").textContent = finalMode
-      ? "容疑者チームの告発です。人狼だと思う生存者を選んでください。"
-      : "自分以外で人狼だと思う人を選んでください。";
-
-    const options = Core.legalVoteTargets(state).map(targetId => {
-      if (targetId === "skip") {
-        return `<button class="vote-option skip" data-vote-target="skip">今回は告発しない</button>`;
-      }
-      const player = state.players.find(item => item.id === targetId);
-      return `<button class="vote-option" data-vote-target="${targetId}">${escapeHtml(player.name)} に投票</button>`;
-    }).join("");
-
-    $("#vote-options").innerHTML = options;
-    $("#vote-options").querySelectorAll("[data-vote-target]").forEach(button => {
-      button.addEventListener("click", () => submitVote(button.dataset.voteTarget));
-    });
-  }
-
-  function openVote() {
-    state.vote.choicesOpen = true;
-    saveState();
-    renderVote();
-  }
-
-  function submitVote(targetId) {
-    try {
-      Core.castVote(state, targetId);
-      saveState();
-      routeState();
-    } catch (error) {
-      showToast(error.message);
-    }
-  }
-
-  function renderResult() {
-    const villagerWin = state.winner === "villager";
-    $("#winner-pill").textContent = villagerWin ? "村人勝利" : "人狼勝利";
-    $("#winner-title").textContent = villagerWin ? "村人陣営の勝ち" : "人狼陣営の勝ち";
-    $("#winner-title").className = villagerWin ? "role-villager" : "role-wolf";
-    $("#result-reason").textContent = state.reason;
-    $("#answer-topic").textContent = state.settings.topic;
-    $("#answer-constraint").textContent = state.settings.constraint;
-    $("#answer-hint-row").classList.toggle("hidden", !state.settings.useSeer);
-    $("#answer-hint").textContent = state.settings.hint;
-
-    $("#role-list").innerHTML = state.players.map(player => `
-      <div class="result-item two-col">
-        <strong>${escapeHtml(player.name)}</strong>
-        <span class="${roleClass(player.role)}">${player.role}${player.suspect ? " / 容疑者" : ""}</span>
-      </div>
-    `).join("");
-
-    $("#vote-history").innerHTML = state.voteHistory.length
-      ? state.voteHistory.map(renderVoteHistory).join("")
-      : `<div class="result-item">投票履歴はありません。</div>`;
-    renderLogs("#result-log", state.logs);
-  }
-
-  function renderVoteHistory(history) {
-    const title = history.mode === "final" ? "最終解決" : `${history.turn}ターン目`;
-    const ballots = history.ballots.map(ballot => {
-      return `${escapeHtml(ballot.voterName)} -> ${escapeHtml(ballot.targetName)}`;
-    }).join("<br>");
-    return `
-      <div class="result-item">
-        <strong>${title}: ${escapeHtml(history.result)}</strong>
-        <span class="muted">${ballots}</span>
-      </div>
-    `;
-  }
-
-  function renderLogs(selector, logs) {
-    const container = $(selector);
-    if (!logs.length) {
-      container.innerHTML = `<div class="result-item">まだ発言ログはありません。</div>`;
-      return;
-    }
-    container.innerHTML = logs.map(log => `
-      <div class="log-item">
-        <strong>${escapeHtml(log.playerName)}</strong>
-        <span>${escapeHtml(log.word)} <small class="muted">(${log.turn}T ${escapeHtml(log.time)})</small></span>
-      </div>
-    `).join("");
-  }
-
-  function routeState() {
-    stopTimer(false);
-    if (!state) {
-      renderHome();
-      showScreen("screen-home");
-      return;
-    }
-    if (state.phase === "reveal") {
-      renderReveal();
-      showScreen("screen-reveal");
-    } else if (state.phase === "discussion") {
-      renderDiscussion();
-      showScreen("screen-discussion");
-    } else if (state.phase === "vote" || state.phase === "finalVote") {
-      renderVote();
-      showScreen("screen-vote");
-    } else if (state.phase === "result") {
-      renderResult();
-      showScreen("screen-result");
-    }
-  }
-
-  function restartSamePlayers() {
-    settings = Core.normalizeSettings({
-      ...state.settings,
-      names: state.players.map(player => player.name),
-      playerCount: state.players.length
-    });
-    clearSavedState();
-    state = null;
-    renderSetup();
-    showScreen("screen-setup");
-  }
-
   function roleClass(role) {
     if (role === Core.ROLES.WOLF) return "role-wolf";
     if (role === Core.ROLES.SEER) return "role-seer";
     return "role-villager";
   }
 
-  function formatTime(seconds) {
-    const minutes = Math.floor(seconds / 60);
-    const rest = seconds % 60;
-    return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
-  }
-
   function escapeHtml(value) {
-    return String(value)
+    return String(value ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
-  }
-
-  function loadSettings() {
-    try {
-      return Core.normalizeSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY)) || Core.defaultSettings());
-    } catch {
-      return Core.defaultSettings();
-    }
-  }
-
-  function saveSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }
-
-  function loadState() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(STATE_KEY));
-      return saved?.version === 3 ? saved : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function saveState() {
-    if (state) localStorage.setItem(STATE_KEY, JSON.stringify(state));
-  }
-
-  function clearSavedState() {
-    localStorage.removeItem(STATE_KEY);
   }
 })();

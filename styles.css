@@ -118,6 +118,21 @@ button {
   line-height: 1.65;
 }
 
+.notice {
+  margin-bottom: 14px;
+  border: 1px solid #92400e;
+  border-radius: 12px;
+  background: #3b2a12;
+  color: #fde68a;
+  padding: 13px 14px;
+  line-height: 1.6;
+}
+
+.notice code {
+  color: #fff7ed;
+  font-weight: 900;
+}
+
 .stack {
   display: grid;
   gap: 14px;
@@ -190,6 +205,20 @@ button {
 .input:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, .2);
+}
+
+.code-input {
+  text-transform: uppercase;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 1000;
+  letter-spacing: .18em;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .name-fields {
@@ -316,6 +345,30 @@ button {
   white-space: nowrap;
 }
 
+.room-code-card {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  border: 1px solid #1d4ed8;
+  border-radius: 14px;
+  background: #10224a;
+  padding: 16px;
+}
+
+.room-code-card span {
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.room-code-card strong {
+  color: #fff;
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: .16em;
+}
+
 .center-card {
   display: grid;
   place-items: center;
@@ -337,6 +390,11 @@ button {
   color: #111827;
   box-shadow: var(--shadow);
   text-align: center;
+}
+
+.private-card.compact {
+  margin: 0 0 14px;
+  padding: 16px;
 }
 
 .card-label {
@@ -405,6 +463,25 @@ button {
 }
 
 .timer.danger {
+  border-color: var(--red);
+  color: #fecaca;
+}
+
+.countdown {
+  display: grid;
+  place-items: center;
+  width: 116px;
+  height: 116px;
+  margin: 10px auto 14px;
+  border: 7px solid #1e40af;
+  border-radius: 999px;
+  color: #dbeafe;
+  font-size: 30px;
+  font-weight: 1000;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown.danger {
   border-color: var(--red);
   color: #fecaca;
 }
@@ -481,6 +558,11 @@ button {
   background: #3b2a12;
 }
 
+.success-text {
+  color: #86efac;
+  font-weight: 900;
+}
+
 .result-hero h2 {
   margin: 0;
   font-size: 32px;
@@ -490,6 +572,10 @@ button {
   display: grid;
   gap: 10px;
   margin: 0;
+}
+
+.compact-list {
+  margin-top: 12px;
 }
 
 .answer-list div,
@@ -546,6 +632,10 @@ button {
   }
 
   .log-form {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
     grid-template-columns: 1fr;
   }
 }
