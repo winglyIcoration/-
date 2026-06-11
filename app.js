@@ -325,9 +325,11 @@
         <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
         <p class="muted">送信済み ${submitted} / ${living.length}</p>
         ${missing.length
-          ? `<p class="muted">${timeOver ? "入力時間終了。未送信者はこの週で送信できません。" : "全員の送信完了で自動的に開示へ進みます。"}<br>未送信: ${missing.map(player => escapeHtml(player.name)).join(", ")}</p>`
+          ? `<p class="muted">${timeOver ? "30秒を経過しました。未送信者はまだ入力できます。" : "全員の送信完了で自動的に開示へ進みます。"}<br>未送信: ${missing.map(player => escapeHtml(player.name)).join(", ")}</p>
+            ${timeOver ? `<button id="force-reveal" class="button warn full">強制的に開示フェーズへ</button>` : ""}`
           : `<p class="success-text">全員送信済み。開示フェーズへ移動します。</p>`}
       `;
+      if (timeOver && missing.length) $("#force-reveal").addEventListener("click", () => advanceToReveal(true));
       return;
     }
     if (room.phase === Core.PHASES.REVEAL) {
@@ -471,12 +473,12 @@
       panel.innerHTML = `
         <h2>${room.week}週目: 伏せ入力</h2>
         <div class="countdown" data-countdown="${room.inputEndsAt}"></div>
-        ${submitted ? `<p class="success-text">送信済み: ${escapeHtml(submitted.word)}</p><p class="muted">全員の入力完了を待っています。</p>` : `
+        ${submitted ? `<p class="success-text">送信済み: ${escapeHtml(submitted.word)}</p><p class="muted">全員の入力完了、またはマスターの進行を待っています。</p>` : `
           <label class="field-label">伏せワード
-            <input id="${inputId}" class="input" autocomplete="off" placeholder="お題に沿ったワード" data-input-lock ${timeOver ? "disabled" : ""}>
+            <input id="${inputId}" class="input" autocomplete="off" placeholder="お題に沿ったワード">
           </label>
-          <button id="${buttonId}" class="button primary full" data-input-lock ${timeOver ? "disabled" : ""}>伏せて送信</button>
-          <p class="muted ${timeOver ? "" : "hidden"}" data-deadline-message>入力時間が終了しました。未送信のため、この週は送信できません。</p>
+          <button id="${buttonId}" class="button primary full">伏せて送信</button>
+          <p class="muted ${timeOver ? "" : "hidden"}" data-warning-message>30秒を過ぎました。まだ入力できますが、マスターが強制進行できます。</p>
         `}
       `;
       if (!submitted) panel.querySelector(`#${buttonId}`).addEventListener("click", () => submitWord(inputId));
@@ -548,9 +550,24 @@
     });
   }
 
-  async function advanceToReveal() {
+  async function advanceToReveal(fillMissing = false) {
     await mutate(state => {
+      if (fillMissing) fillMissingWords(state);
       return Core.startReveal(state);
+    });
+  }
+
+  function fillMissingWords(state) {
+    Core.livingPlayers(state).forEach(player => {
+      if (!state.submissions[player.id]) {
+        state.submissions[player.id] = {
+          playerId: player.id,
+          word: "（未入力）",
+          normalized: `__missing_${state.week}_${player.id}`,
+          submittedAt: Date.now(),
+          revealed: false
+        };
+      }
     });
   }
 
@@ -572,15 +589,11 @@
     document.querySelectorAll("[data-countdown]").forEach(el => {
       const end = Number(el.dataset.countdown);
       const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-      const expired = left <= 0;
       el.textContent = `${left}秒`;
       el.classList.toggle("danger", left <= 5);
       const panel = el.closest(".panel");
-      panel?.querySelectorAll("[data-input-lock]").forEach(control => {
-        control.disabled = expired;
-      });
-      panel?.querySelectorAll("[data-deadline-message]").forEach(message => {
-        message.classList.toggle("hidden", !expired);
+      panel?.querySelectorAll("[data-warning-message]").forEach(message => {
+        message.classList.toggle("hidden", left > 0);
       });
     });
   }

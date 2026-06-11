@@ -124,7 +124,8 @@ function forceRoles(state, roles) {
   const state = roomWithPlayers(3);
   forceRoles(state, [Core.ROLES.WOLF, Core.ROLES.VILLAGER, Core.ROLES.VILLAGER]);
   Core.startWeek(state, 1000);
-  assert.throws(() => Core.submitHiddenWord(state, "p1", "ライオン", 40000), /入力時間/);
+  Core.submitHiddenWord(state, "p1", "ライオン", 40000);
+  assert.equal(state.submissions.p1.word, "ライオン");
 }
 
 {

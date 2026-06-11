@@ -316,7 +316,6 @@
 
   function submitHiddenWord(state, playerId, word, now = Date.now()) {
     if (state.phase !== PHASES.INPUT) throw new Error("伏せ入力の時間ではありません。");
-    if (state.inputEndsAt && now > state.inputEndsAt) throw new Error("入力時間が終了しました。");
     const player = state.players[playerId];
     if (!player || player.suspect) throw new Error("容疑者は伏せ入力できません。");
     if (!livingPlayers(state).some(item => item.id === playerId)) throw new Error("生存者だけが伏せ入力できます。");
