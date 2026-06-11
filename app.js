@@ -7,6 +7,9 @@
   let unsubscribe = null;
   let hostDraftSettings = null;
   let busy = false;
+  let syncingRoom = false;
+  let wakeLock = null;
+  let wakeLockRequesting = false;
 
   const $ = selector => document.querySelector(selector);
 
@@ -15,6 +18,7 @@
   async function init() {
     Room = await waitForRoomApi();
     bindStaticEvents();
+    bindLifecycleEvents();
     renderConfigState();
     setInterval(tick, 500);
     const query = new URLSearchParams(location.search);
@@ -35,7 +39,17 @@
     document.body.addEventListener("click", event => {
       const action = event.target.closest("[data-action]")?.dataset.action;
       if (action === "leave") leaveRoom();
+      if (action === "sync") recoverRoomConnection();
     });
+  }
+
+  function bindLifecycleEvents() {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") recoverRoomConnection();
+    });
+    window.addEventListener("focus", recoverRoomConnection);
+    window.addEventListener("online", recoverRoomConnection);
+    window.addEventListener("pageshow", recoverRoomConnection);
   }
 
   function renderConfigState() {
@@ -64,6 +78,7 @@
       subscribe(code);
       history.replaceState(null, "", `?room=${code}`);
       showScreen("screen-host");
+      updateWakeLock();
     });
   }
 
@@ -100,6 +115,7 @@
       subscribe(code);
       history.replaceState(null, "", `?room=${code}`);
       showScreen("screen-player");
+      updateWakeLock();
     });
   }
 
@@ -113,7 +129,12 @@
       }
       room = next;
       renderRoom();
-    }, error => showToast(error.message));
+      updateWakeLock();
+    }, error => {
+      showToast(error.message);
+      unsubscribe = null;
+      setTimeout(recoverRoomConnection, 1200);
+    });
   }
 
   function leaveRoom(clearUrl = true) {
@@ -123,14 +144,76 @@
     roomCode = "";
     room = null;
     hostDraftSettings = null;
+    releaseWakeLock();
     if (clearUrl) history.replaceState(null, "", location.pathname);
     showScreen("screen-home");
+  }
+
+  async function recoverRoomConnection() {
+    if (!Room?.configured || !mode || !roomCode || document.visibilityState === "hidden" || syncingRoom) return;
+    syncingRoom = true;
+    try {
+      await Room.ready();
+      const latest = await Room.getRoom(roomCode);
+      if (!latest) {
+        showToast("部屋が見つからなくなりました。");
+        leaveRoom(false);
+        return;
+      }
+      room = latest;
+      renderRoom();
+      if (unsubscribe) unsubscribe();
+      unsubscribe = null;
+      subscribe(roomCode);
+      updateWakeLock();
+    } catch (error) {
+      showToast(`接続の復帰に失敗しました。通信状態を確認してください。${error.message ? ` (${error.message})` : ""}`);
+    } finally {
+      syncingRoom = false;
+    }
+  }
+
+  async function updateWakeLock() {
+    if (!shouldKeepScreenAwake()) {
+      releaseWakeLock();
+      return;
+    }
+    if (wakeLock || wakeLockRequesting || !navigator.wakeLock || document.visibilityState !== "visible") return;
+    wakeLockRequesting = true;
+    try {
+      const lock = await navigator.wakeLock.request("screen");
+      if (!shouldKeepScreenAwake()) {
+        await lock.release().catch(() => {});
+        return;
+      }
+      wakeLock = lock;
+      wakeLock.addEventListener("release", () => {
+        wakeLock = null;
+      });
+    } catch (_) {
+      wakeLock = null;
+    } finally {
+      wakeLockRequesting = false;
+    }
+  }
+
+  function shouldKeepScreenAwake() {
+    return Boolean(mode && roomCode && room && room.phase !== Core.PHASES.RESULT);
+  }
+
+  function releaseWakeLock() {
+    wakeLockRequesting = false;
+    if (!wakeLock) return;
+    const lock = wakeLock;
+    wakeLock = null;
+    lock.release?.().catch(() => {});
   }
 
   function renderRoom() {
     if (!room) return;
     if (mode === "host") renderHost();
     if (mode === "player") renderPlayer();
+    updateWakeLock();
   }
 
   function renderHost() {
