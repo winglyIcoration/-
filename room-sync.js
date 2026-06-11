@@ -41,7 +41,7 @@ if (!config || !config.apiKey || !config.projectId) {
   });
 
   function roomRef(roomCode) {
-    return doc(db, "artifacts", appId, "public", "rooms", roomCode);
+    return doc(db, "artifacts", appId, "public", "data", "rooms", roomCode);
   }
 
   async function ready() {

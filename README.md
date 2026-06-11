@@ -24,7 +24,7 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /artifacts/{appId}/public/rooms/{roomCode} {
+    match /artifacts/{appId}/public/data/rooms/{roomCode} {
       allow read, write: if request.auth != null;
     }
   }
