@@ -47,9 +47,21 @@ function startInputWeek(state, now = 1000) {
   const settings = Core.normalizeSettings({});
   assert.equal(settings.hostParticipates, true);
   assert.equal(settings.hostName, "マスター");
+  assert.equal(settings.topicMode, "manual");
   const disabled = Core.normalizeSettings({ hostParticipates: false, hostName: "進行役" });
   assert.equal(disabled.hostParticipates, false);
   assert.equal(disabled.hostName, "進行役");
+  const external = Core.normalizeSettings({ topicMode: "external", aiModel: "gemini-test" });
+  assert.equal(external.autoTopic, true);
+  assert.equal(external.aiModel, "gemini-test");
+}
+
+{
+  const state = roomWithPlayers(4);
+  const missingGenerated = Core.validateStart({ ...state.settings, topicMode: "external", topic: "", constraint: "", hint: "" }, state.players);
+  assert.equal(missingGenerated.ok, false);
+  const generated = Core.validateStart({ ...state.settings, topicMode: "external", topic: "動物", constraint: "赤い", hint: "色" }, state.players);
+  assert.equal(generated.ok, true);
 }
 
 {
@@ -108,6 +120,21 @@ function startInputWeek(state, now = 1000) {
   assert.equal(state.settings.topic, "動物");
   assert.equal(state.settings.constraint, "人間が手で抱えられる大きさのもの");
   assert.equal(state.settings.hint, "大きさ");
+}
+
+{
+  const state = roomWithPlayers(4);
+  state.settings = Core.normalizeSettings({
+    wolfCount: 1,
+    useSeer: true,
+    topicMode: "external",
+    topic: "植物",
+    constraint: "赤い花を咲かせるもの",
+    hint: "色"
+  });
+  Core.assignRoles(state, () => 0);
+  assert.equal(state.settings.topic, "植物");
+  assert.equal(state.settings.constraint, "赤い花を咲かせるもの");
 }
 
 {

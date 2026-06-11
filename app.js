@@ -12,6 +12,7 @@
   let wakeLockRequesting = false;
 
   const SESSION_KEY = "cww.lastSession.v1";
+  const GEMINI_API_KEY = "cww.geminiApiKey.session";
   const $ = selector => document.querySelector(selector);
 
   document.addEventListener("DOMContentLoaded", init);
@@ -374,11 +375,14 @@
           <input id="host-name" class="input" maxlength="16" value="${escapeHtml(settings.hostName)}">
         </label>
       </div>
-      <label class="check-row">
-        <span><strong>お任せ(ローカル生成)</strong><small>お題だけ指定できます。空ならレベルに応じて生成します。</small></span>
-        <input id="host-auto-topic" type="checkbox" ${settings.autoTopic ? "checked" : ""}>
+      <label class="field-label">お題モード
+        <select id="host-topic-mode" class="input">
+          <option value="manual" ${settings.topicMode === "manual" ? "selected" : ""}>手動入力</option>
+          <option value="local" ${settings.topicMode === "local" ? "selected" : ""}>お任せ(ローカル生成)</option>
+          <option value="external" ${settings.topicMode === "external" ? "selected" : ""}>お任せ(外部AI / Gemini)</option>
+        </select>
       </label>
-      <div id="auto-topic-fields" class="${settings.autoTopic ? "" : "hidden"}">
+      <div id="auto-topic-fields" class="${settings.topicMode === "local" ? "" : "hidden"}">
         <label class="field-label">生成レベル
           <select id="host-topic-level" class="input">
             <option value="1" ${settings.topicLevel === 1 ? "selected" : ""}>レベル1: 普通</option>
@@ -390,7 +394,26 @@
           <input id="host-topic-auto" class="input" value="${escapeHtml(settings.topic)}" placeholder="空ならお題も生成">
         </label>
       </div>
-      <div id="manual-topic-fields" class="${settings.autoTopic ? "hidden" : ""}">
+      <div id="external-topic-fields" class="${settings.topicMode === "external" ? "" : "hidden"}">
+        <label class="field-label">Gemini APIキー
+          <input id="host-gemini-api-key" class="input" type="password" autocomplete="off" placeholder="AI StudioのAPIキー">
+        </label>
+        <label class="field-label">Geminiモデル
+          <input id="host-gemini-model" class="input" value="${escapeHtml(settings.aiModel)}" placeholder="gemini-2.5-flash-preview-09-2025">
+        </label>
+        <label class="field-label">生成レベル
+          <select id="host-external-topic-level" class="input">
+            <option value="1" ${settings.topicLevel === 1 ? "selected" : ""}>レベル1: 普通</option>
+            <option value="2" ${settings.topicLevel === 2 ? "selected" : ""}>レベル2: ちょい知識</option>
+            <option value="3" ${settings.topicLevel === 3 ? "selected" : ""}>レベル3: マニアック</option>
+          </select>
+        </label>
+        <label class="field-label">お題指定（任意）
+          <input id="host-external-topic" class="input" value="${escapeHtml(settings.topic)}" placeholder="空ならAIがお題も生成">
+        </label>
+        <div class="notice soft">APIキーはこの端末内だけで使い、部屋データには保存しません。失敗時はローカル生成へフォールバックします。</div>
+      </div>
+      <div id="manual-topic-fields" class="${settings.topicMode === "manual" ? "" : "hidden"}">
         <label class="field-label">お題
           <input id="host-topic" class="input" value="${escapeHtml(settings.topic)}">
         </label>
@@ -401,24 +424,29 @@
           <input id="host-hint" class="input" maxlength="8" value="${escapeHtml(settings.hint)}">
         </label>
       </div>
-      ${settings.autoTopic ? `<div class="notice soft">制約・ヒントはゲーム開始時にローカル生成され、各参加者のカードにだけ表示されます。</div>` : ""}
+      ${settings.topicMode === "local" ? `<div class="notice soft">制約・ヒントはゲーム開始時にローカル生成され、各参加者のカードにだけ表示されます。</div>` : ""}
       <div class="button-row">
-        <button id="host-template" class="button secondary" ${settings.autoTopic ? "disabled" : ""}>手動候補</button>
+        <button id="host-template" class="button secondary" ${settings.topicMode !== "manual" ? "disabled" : ""}>手動候補</button>
         <button id="host-start" class="button primary">役職確認へ</button>
       </div>
     `;
     panel.querySelectorAll("input, select").forEach(input => input.addEventListener("input", collectHostDraft));
+    const savedGeminiKey = sessionStorage.getItem(GEMINI_API_KEY) || "";
+    if ($("#host-gemini-api-key") && savedGeminiKey) $("#host-gemini-api-key").value = savedGeminiKey;
     $("#host-participates").addEventListener("change", () => {
       collectHostDraft();
       renderHostSetup();
     });
-    $("#host-auto-topic").addEventListener("change", () => {
+    $("#host-topic-mode").addEventListener("change", () => {
       const next = collectHostDraft();
-      if ($("#host-auto-topic").checked) {
+      if ($("#host-topic-mode").value !== "manual") {
         next.topic = "";
         hostDraftSettings = next;
       }
       renderHostSetup();
+    });
+    $("#host-gemini-api-key")?.addEventListener("input", () => {
+      sessionStorage.setItem(GEMINI_API_KEY, $("#host-gemini-api-key").value.trim());
     });
     $("#host-template").addEventListener("click", () => {
       const item = Core.TEMPLATES[Math.floor(Math.random() * Core.TEMPLATES.length)];
@@ -429,6 +457,7 @@
   }
 
   function collectHostDraft(save = true) {
+    const topicMode = $("#host-topic-mode")?.value || "manual";
     const settings = Core.normalizeSettings({
       wolfCount: Number($("#host-wolves")?.value || 1),
       maxWeeks: Number($("#host-max-weeks")?.value || 3),
@@ -437,9 +466,15 @@
       useSeer: Boolean($("#host-use-seer")?.checked),
       hostParticipates: Boolean($("#host-participates")?.checked),
       hostName: $("#host-name")?.value || "マスター",
-      autoTopic: Boolean($("#host-auto-topic")?.checked),
-      topicLevel: Number($("#host-topic-level")?.value || 1),
-      topic: $("#host-auto-topic")?.checked ? ($("#host-topic-auto")?.value || "") : ($("#host-topic")?.value || ""),
+      topicMode,
+      autoTopic: topicMode !== "manual",
+      aiModel: $("#host-gemini-model")?.value || "gemini-2.5-flash-preview-09-2025",
+      topicLevel: Number((topicMode === "external" ? $("#host-external-topic-level") : $("#host-topic-level"))?.value || 1),
+      topic: topicMode === "external"
+        ? ($("#host-external-topic")?.value || "")
+        : topicMode === "local"
+          ? ($("#host-topic-auto")?.value || "")
+          : ($("#host-topic")?.value || ""),
       constraint: $("#host-constraint")?.value || "",
       hint: $("#host-hint")?.value || ""
     });
@@ -450,17 +485,153 @@
   async function hostStartGame() {
     await run(async () => {
       const draft = collectHostDraft();
+      const topicResult = await resolveTopicSettings(draft);
       await Room.mutateRoom(roomCode, state => {
-        state.settings = draft;
-        if (draft.hostParticipates) {
-          Core.addOrUpdatePlayer(state, state.hostId, draft.hostName);
+        state.settings = topicResult.settings;
+        if (topicResult.settings.hostParticipates) {
+          Core.addOrUpdatePlayer(state, state.hostId, topicResult.settings.hostName);
         } else {
           delete state.players[state.hostId];
         }
         Core.assignRoles(state);
         return Core.startRoleCheck(state);
       });
+      if (topicResult.notice) showToast(topicResult.notice);
     });
+  }
+
+  async function resolveTopicSettings(settings) {
+    if (settings.topicMode !== "external") return { settings, notice: "" };
+    const apiKey = ($("#host-gemini-api-key")?.value || sessionStorage.getItem(GEMINI_API_KEY) || "").trim();
+    if (!apiKey) throw new Error("外部AI生成にはGemini APIキーを入力してください。");
+
+    try {
+      const generated = await generateGeminiTopicSet({
+        apiKey,
+        model: settings.aiModel,
+        level: settings.topicLevel,
+        preferredTopic: settings.topic
+      });
+      return {
+        settings: Core.normalizeSettings({
+          ...settings,
+          topicMode: "external",
+          autoTopic: true,
+          ...generated
+        }),
+        notice: ""
+      };
+    } catch (error) {
+      const fallback = Core.generateTopicSet(Math.random, settings.topicLevel, settings.topic);
+      return {
+        settings: Core.normalizeSettings({
+          ...settings,
+          topicMode: "external",
+          autoTopic: true,
+          ...fallback
+        }),
+        notice: `外部AI生成に失敗したため、ローカル生成に切り替えました。${error.message ? ` (${error.message})` : ""}`
+      };
+    }
+  }
+
+  async function generateGeminiTopicSet({ apiKey, model, level, preferredTopic }) {
+    const cleanModel = String(model || "gemini-2.5-flash-preview-09-2025").trim().replace(/^models\//, "");
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const levelText = {
+      1: "レベル1: 普通。誰でも答えやすい一般カテゴリと、分かりやすい制約。",
+      2: "レベル2: ちょい知識必要。偉人、国、映画、ゲームなど、少し知識があると楽しいカテゴリ。",
+      3: "レベル3: マニアック。特定作品、シリーズ、専門ジャンルなど、知っている人向けのカテゴリ。"
+    }[level] || "レベル1: 普通。";
+    const preferred = String(preferredTopic || "").trim();
+    const userPrompt = `
+生成レベル: ${levelText}
+${preferred ? `ユーザー指定のお題候補: ${preferred}\nこのお題候補がゲームに適していれば topic として使い、制約とヒントを作ってください。適さない場合は別のお題を生成してください。` : "topic も含めて生成してください。"}
+
+必ず JSON オブジェクトだけを返してください。
+キーは topic, constraint, hint の3つだけです。
+`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: geminiSystemPrompt() }]
+        },
+        contents: [{
+          role: "user",
+          parts: [{ text: userPrompt }]
+        }],
+        generationConfig: {
+          temperature: 0.95,
+          topP: 0.95,
+          candidateCount: 1,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "object",
+            properties: {
+              topic: { type: "string" },
+              constraint: { type: "string" },
+              hint: { type: "string" }
+            },
+            required: ["topic", "constraint", "hint"],
+            propertyOrdering: ["topic", "constraint", "hint"]
+          }
+        }
+      })
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error?.message || `Gemini API ${response.status}`);
+    }
+    const text = (data?.candidates?.[0]?.content?.parts || [])
+      .map(part => part.text || "")
+      .join("")
+      .trim();
+    return parseGeneratedTopicSet(text || JSON.stringify(data));
+  }
+
+  function geminiSystemPrompt() {
+    return [
+      "あなたは『制約ワードウルフ』のお題セット生成エンジンです。",
+      "出力は必ずJSONオブジェクトのみ。Markdown、説明文、コードブロックは禁止。",
+      "topic: プレイヤー全員がワードを考えるベースになる、広い認知度を持つ一般カテゴリ名。単語一語の名詞。余計な接頭辞は禁止。",
+      "constraint: 人狼だけに課される条件。広すぎず狭すぎず、複数ログから違和感が見える程度。場所、大きさ、価格帯、色、素材、所属、時代、用途など具体名詞を絞れる切り口にする。",
+      "hint: 占い師向け。制約そのものを暴露せず、方向性を示す1〜4文字程度の漢字またはカタカナの単語。",
+      "例: {\"topic\":\"動物\",\"constraint\":\"人間が手で抱えられる大きさのもの\",\"hint\":\"大きさ\"}",
+      "例: {\"topic\":\"偉人\",\"constraint\":\"ノーベル賞を受賞している人物\",\"hint\":\"受賞\"}",
+      "例: {\"topic\":\"ワンピースのキャラ\",\"constraint\":\"海賊ではないキャラクター\",\"hint\":\"所属\"}"
+    ].join("\n");
+  }
+
+  function parseGeneratedTopicSet(raw) {
+    let text = String(raw || "").trim();
+    text = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    if (first >= 0 && last > first) text = text.slice(first, last + 1);
+    const parsed = JSON.parse(text);
+    const topic = cleanGeneratedValue(findGeneratedValue(parsed, ["topic", "お題", "おだい", "テーマ", "category"]));
+    const constraint = cleanGeneratedValue(findGeneratedValue(parsed, ["constraint", "制約", "せいやく", "条件", "制限", "制約条件"]));
+    const hint = cleanGeneratedValue(findGeneratedValue(parsed, ["hint", "ヒント", "ひんと", "占い師ヒント"])).replace(/\s+/g, "").slice(0, 8);
+    return Core.sanitizeTopicSet({ topic, constraint, hint });
+  }
+
+  function findGeneratedValue(object, keys) {
+    if (!object || typeof object !== "object") return "";
+    const entries = Object.entries(object);
+    for (const key of keys) {
+      const found = entries.find(([candidate]) => Core.normalizeText(candidate) === Core.normalizeText(key));
+      if (found) return found[1];
+    }
+    return "";
+  }
+
+  function cleanGeneratedValue(value) {
+    return String(value || "")
+      .replace(/^(お題|おだい|テーマ|topic|カテゴリ|category|制約|せいやく|条件|制限|constraint|ヒント|ひんと|hint)[:：\s]+/i, "")
+      .trim();
   }
 
   function renderHostParticipant() {
@@ -568,34 +739,37 @@
         </div>
         <button id="back-lobby" class="button primary full">同じ部屋で新規ゲーム</button>
       `;
-      $("#back-lobby").addEventListener("click", () => mutate(state => {
-        state.phase = Core.PHASES.LOBBY;
-        state.week = 0;
-        state.roleReady = {};
-        state.seerId = "";
-        state.seerRevealed = false;
-        state.thinkEndsAt = null;
-        state.inputEndsAt = null;
-        state.discussionEndsAt = null;
-        state.submissions = {};
-        state.revealOrder = [];
-        state.revealIndex = 0;
-        state.logs = [];
-        state.votes = {};
-        state.voteHistory = [];
-        state.winner = "";
-        state.reason = "";
-        if (state.settings?.autoTopic) {
-          state.settings.topic = "";
-          state.settings.constraint = "";
-          state.settings.hint = "";
-        }
-        Object.values(state.players).forEach(player => {
-          player.role = "";
-          player.suspect = false;
+      $("#back-lobby").addEventListener("click", () => {
+        hostDraftSettings = null;
+        mutate(state => {
+          state.phase = Core.PHASES.LOBBY;
+          state.week = 0;
+          state.roleReady = {};
+          state.seerId = "";
+          state.seerRevealed = false;
+          state.thinkEndsAt = null;
+          state.inputEndsAt = null;
+          state.discussionEndsAt = null;
+          state.submissions = {};
+          state.revealOrder = [];
+          state.revealIndex = 0;
+          state.logs = [];
+          state.votes = {};
+          state.voteHistory = [];
+          state.winner = "";
+          state.reason = "";
+          if (state.settings?.autoTopic) {
+            state.settings.topic = "";
+            state.settings.constraint = "";
+            state.settings.hint = "";
+          }
+          Object.values(state.players).forEach(player => {
+            player.role = "";
+            player.suspect = false;
+          });
+          return state;
         });
-        return state;
-      }));
+      });
     }
   }
 

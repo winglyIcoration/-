@@ -262,7 +262,9 @@
       topicLevel: 1,
       hostParticipates: true,
       hostName: "マスター",
+      topicMode: "manual",
       autoTopic: false,
+      aiModel: "gemini-2.5-flash-preview-09-2025",
       topic: "動物",
       constraint: "サバンナにいる",
       hint: "生息地"
@@ -287,7 +289,11 @@
     settings.topicLevel = clamp(Number(settings.topicLevel) || 1, 1, 3);
     settings.hostParticipates = input?.hostParticipates !== false;
     settings.hostName = String(settings.hostName || "マスター").trim() || "マスター";
-    settings.autoTopic = Boolean(settings.autoTopic);
+    settings.topicMode = ["manual", "local", "external"].includes(input?.topicMode)
+      ? input.topicMode
+      : Boolean(input?.autoTopic) ? "local" : settings.topicMode;
+    settings.autoTopic = settings.topicMode !== "manual";
+    settings.aiModel = String(settings.aiModel || "gemini-2.5-flash-preview-09-2025").trim() || "gemini-2.5-flash-preview-09-2025";
     settings.topic = String(settings.topic || "").trim();
     settings.constraint = String(settings.constraint || "").trim();
     settings.hint = String(settings.hint || "").trim();
@@ -305,7 +311,7 @@
     if (settings.wolfCount >= players.length) errors.push("人狼人数は参加者数未満にしてください。");
     const seerEligible = settings.useSeer && players.length >= 4;
     if (seerEligible && players.length - settings.wolfCount < 2) errors.push("占い師を入れるには村人陣営の枠が足りません。");
-    if (!settings.autoTopic) {
+    if (settings.topicMode !== "local") {
       if (!settings.topic) errors.push("お題を入力してください。");
       if (!settings.constraint) errors.push("人狼の制約を入力してください。");
       if (seerEligible && !settings.hint) errors.push("占い師ヒントを入力してください。");
@@ -371,7 +377,7 @@
   }
 
   function assignRoles(state, random = Math.random) {
-    if (state.settings?.autoTopic) {
+    if (state.settings?.topicMode === "local" || (state.settings?.autoTopic && !state.settings?.topicMode)) {
       state.settings = normalizeSettings({ ...state.settings, ...generateTopicSet(random, state.settings.topicLevel, state.settings.topic) });
     }
     const validation = validateStart(state.settings, state.players);
