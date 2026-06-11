@@ -13,6 +13,14 @@
 
   const SESSION_KEY = "cww.lastSession.v1";
   const GEMINI_API_KEY = "cww.geminiApiKey.session";
+  const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+  const GEMINI_MODEL_FALLBACKS = [
+    DEFAULT_GEMINI_MODEL,
+    "gemini-3.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest"
+  ];
+  const GEMINI_TIMEOUT_MS = 15000;
   const $ = selector => document.querySelector(selector);
 
   document.addEventListener("DOMContentLoaded", init);
@@ -399,7 +407,7 @@
           <input id="host-gemini-api-key" class="input" type="password" autocomplete="off" placeholder="AI StudioのAPIキー">
         </label>
         <label class="field-label">Geminiモデル
-          <input id="host-gemini-model" class="input" value="${escapeHtml(settings.aiModel)}" placeholder="gemini-2.5-flash-preview-09-2025">
+          <input id="host-gemini-model" class="input" value="${escapeHtml(settings.aiModel)}" placeholder="${DEFAULT_GEMINI_MODEL}">
         </label>
         <label class="field-label">生成レベル
           <select id="host-external-topic-level" class="input">
@@ -468,7 +476,7 @@
       hostName: $("#host-name")?.value || "マスター",
       topicMode,
       autoTopic: topicMode !== "manual",
-      aiModel: $("#host-gemini-model")?.value || "gemini-2.5-flash-preview-09-2025",
+      aiModel: $("#host-gemini-model")?.value || DEFAULT_GEMINI_MODEL,
       topicLevel: Number((topicMode === "external" ? $("#host-external-topic-level") : $("#host-topic-level"))?.value || 1),
       topic: topicMode === "external"
         ? ($("#host-external-topic")?.value || "")
@@ -512,14 +520,18 @@
         level: settings.topicLevel,
         preferredTopic: settings.topic
       });
+      const requestedModel = normalizeGeminiModelName(settings.aiModel);
       return {
         settings: Core.normalizeSettings({
           ...settings,
           topicMode: "external",
           autoTopic: true,
-          ...generated
+          aiModel: generated.modelUsed,
+          ...generated.topicSet
         }),
-        notice: ""
+        notice: generated.modelUsed !== requestedModel
+          ? `指定モデルが使えなかったため、${generated.modelUsed}で外部AI生成しました。`
+          : ""
       };
     } catch (error) {
       const fallback = Core.generateTopicSet(Math.random, settings.topicLevel, settings.topic);
@@ -536,8 +548,26 @@
   }
 
   async function generateGeminiTopicSet({ apiKey, model, level, preferredTopic }) {
-    const cleanModel = String(model || "gemini-2.5-flash-preview-09-2025").trim().replace(/^models\//, "");
+    const modelErrors = [];
+    for (const candidate of geminiModelCandidates(model)) {
+      try {
+        return {
+          topicSet: await requestGeminiTopicSet({ apiKey, model: candidate, level, preferredTopic }),
+          modelUsed: candidate
+        };
+      } catch (error) {
+        if (!isGeminiModelUnavailableError(error)) throw error;
+        modelErrors.push(`${candidate}: ${error.message}`);
+      }
+    }
+    throw new Error(`利用可能なGeminiモデルが見つかりませんでした。${modelErrors.join(" / ")}`);
+  }
+
+  async function requestGeminiTopicSet({ apiKey, model, level, preferredTopic }) {
+    const cleanModel = normalizeGeminiModelName(model);
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
     const levelText = {
       1: "レベル1: 普通。誰でも答えやすい一般カテゴリと、分かりやすい制約。",
       2: "レベル2: ちょい知識必要。偉人、国、映画、ゲームなど、少し知識があると楽しいカテゴリ。",
@@ -551,45 +581,73 @@ ${preferred ? `ユーザー指定のお題候補: ${preferred}\nこのお題候�
 必ず JSON オブジェクトだけを返してください。
 キーは topic, constraint, hint の3つだけです。
 `;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: geminiSystemPrompt() }]
-        },
-        contents: [{
-          role: "user",
-          parts: [{ text: userPrompt }]
-        }],
-        generationConfig: {
-          temperature: 0.95,
-          topP: 0.95,
-          candidateCount: 1,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "object",
-            properties: {
-              topic: { type: "string" },
-              constraint: { type: "string" },
-              hint: { type: "string" }
-            },
-            required: ["topic", "constraint", "hint"],
-            propertyOrdering: ["topic", "constraint", "hint"]
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: geminiSystemPrompt() }]
+          },
+          contents: [{
+            role: "user",
+            parts: [{ text: userPrompt }]
+          }],
+          generationConfig: {
+            temperature: 0.95,
+            topP: 0.95,
+            candidateCount: 1,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "object",
+              properties: {
+                topic: { type: "string" },
+                constraint: { type: "string" },
+                hint: { type: "string" }
+              },
+              required: ["topic", "constraint", "hint"],
+              propertyOrdering: ["topic", "constraint", "hint"]
+            }
           }
-        }
-      })
-    });
+        })
+      });
 
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(data?.error?.message || `Gemini API ${response.status}`);
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const error = new Error(data?.error?.message || `Gemini API ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      const text = (data?.candidates?.[0]?.content?.parts || [])
+        .map(part => part.text || "")
+        .join("")
+        .trim();
+      return parseGeneratedTopicSet(text || JSON.stringify(data));
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("Gemini APIがタイムアウトしました。");
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    const text = (data?.candidates?.[0]?.content?.parts || [])
-      .map(part => part.text || "")
-      .join("")
-      .trim();
-    return parseGeneratedTopicSet(text || JSON.stringify(data));
+  }
+
+  function normalizeGeminiModelName(model) {
+    if (Core.normalizeAiModel) return Core.normalizeAiModel(model);
+    const value = String(model || DEFAULT_GEMINI_MODEL).trim().replace(/^models\//, "");
+    if (!value || value === "gemini-2.5-flash-preview-09-2025") return DEFAULT_GEMINI_MODEL;
+    return value;
+  }
+
+  function geminiModelCandidates(model) {
+    return [...new Set([normalizeGeminiModelName(model), ...GEMINI_MODEL_FALLBACKS])];
+  }
+
+  function isGeminiModelUnavailableError(error) {
+    const message = String(error?.message || "").toLowerCase();
+    return error?.status === 404
+      || message.includes("not found")
+      || message.includes("not supported for generatecontent");
   }
 
   function geminiSystemPrompt() {

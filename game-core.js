@@ -23,6 +23,7 @@
   };
 
   const SKIP_VOTE = "__skip__";
+  const DEFAULT_AI_MODEL = "gemini-2.5-flash";
 
   const TEMPLATES = [
     { topic: "動物", constraint: "サバンナにいる", hint: "生息地" },
@@ -264,7 +265,7 @@
       hostName: "マスター",
       topicMode: "manual",
       autoTopic: false,
-      aiModel: "gemini-2.5-flash-preview-09-2025",
+      aiModel: DEFAULT_AI_MODEL,
       topic: "動物",
       constraint: "サバンナにいる",
       hint: "生息地"
@@ -293,11 +294,17 @@
       ? input.topicMode
       : Boolean(input?.autoTopic) ? "local" : settings.topicMode;
     settings.autoTopic = settings.topicMode !== "manual";
-    settings.aiModel = String(settings.aiModel || "gemini-2.5-flash-preview-09-2025").trim() || "gemini-2.5-flash-preview-09-2025";
+    settings.aiModel = normalizeAiModel(settings.aiModel);
     settings.topic = String(settings.topic || "").trim();
     settings.constraint = String(settings.constraint || "").trim();
     settings.hint = String(settings.hint || "").trim();
     return settings;
+  }
+
+  function normalizeAiModel(model) {
+    const value = String(model || DEFAULT_AI_MODEL).trim().replace(/^models\//, "");
+    if (!value || value === "gemini-2.5-flash-preview-09-2025") return DEFAULT_AI_MODEL;
+    return value;
   }
 
   function validateStart(settingsInput, playersInput) {
@@ -741,6 +748,7 @@
     defaultSettings,
     normalizeText,
     normalizeSettings,
+    normalizeAiModel,
     validateStart,
     createRoom,
     addOrUpdatePlayer,
